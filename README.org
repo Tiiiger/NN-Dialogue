@@ -1,0 +1,10 @@
+#+TITLE: NN Dialog
+Intend to implement papers of using Neural Network to generate dialog response.
+
+* Roadmap
+** Seq2Seq Model
+Implement vanilla seq2seq model. Experiment the encoder with bidrectional LSTM,
+deep bidrectional LSTM, and SRU.
+** MMI
+Implement maximum mutual information criterion in the decoder. 
+
