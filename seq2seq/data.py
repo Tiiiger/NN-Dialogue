@@ -1,39 +1,49 @@
 import argparse
-from torch import Tensor
+import torch
+from torch.autograd import Variable
 
 def parse():
     parser = argparse.ArgumentParser(description='Pass Parameters for Seq2Seq Model')
-    parser.add_argument('--batch', dest='batch_size', type=int,
-                        default=4, help='define the batch size of training process')
-    parser.add_argument('--pretrain', dest='pretrain' action="store_const", const=True, default=False, 
-                        help='use the pretrain model to run')
-    parser.add_argument('--trainpath', dest="train_path", type=str, default="../Data/t_given_s_train.txt")
-    parser.add_argument('--testpath', dest="test_path", type=str, default="../Data/t_given_s_test.txt")
-    parser.add_argument('--vocabsize', dest="vocab_size", type=int, default=25000)
+    parser.add_argument('--batch', dest='batch_size', type=int, default=4,
+                        help='define the batch size of training process')
+    parser.add_argument('--pretrain', dest='pretrain', action="store_const",
+                        const=True, default=False, help='use the pretrain model \
+                        to run')
+    parser.add_argument('--trainpath', dest="train_path", type=str,
+                        default="../Data/t_given_s_train.txt")
+    parser.add_argument('--testpath', dest="test_path", type=str,
+                        default="../Data/t_given_s_test.txt")
+    parser.add_argument('--vocabsize', dest="vocab_size",
+                        type=int, default=25000)
     parser.add_argument('--clip', dest="clip_thresh", type=int, default=5)
-    parser.add_argument('--dictpath', dest="dict_path", type=str, default="../Data/movie_25000")
-    parser.add_argument('--reverse', dest="reverse", action="store_const", const=True, default=False,
+    parser.add_argument('--dictpath', dest="dict_path",
                         type=str, default="../Data/movie_25000")
+    parser.add_argument('--reverse', dest="reverse", action="store_const",
+                        const=True, default=False, )
     # parser.add_argument('--testpath', dest="test_path", type=str, default="../Data/t_given_s_train.txt")
 
     return parser.parse_args()
 
 class Loader:
-    def __init__(self, params):
+    def __init__(self, params, path=None):
+        if path==None:
+            path = params.train_path
+        self.params = params
         self.EOS = params.vocab_size+1
         self.SOS = params.vocab_size+2
         self.UNKNOWN = params.vocab_size+3
+        self.PAD = params.vocab_size+4
         self.last = 0
         self.batch_size = params.batch_size
-        self.train_source, self.train_target = self.__read_data(params.reverse)
+        self.source, self.target = self.__read_data(path, params.reverse)
 
-    def split_to_tensor(line, rev=False):
+    def __split_to_tensor(self, line, rev=False):
         line = line.split()
         arr = [int(i) for i in line]
         if rev: arr.reverse()
-        return Tensor(arr)
+        return arr
 
-    def __read_data(path=params.train_path):
+    def __read_data(self, path, reverse):
         """
         Read the data into this data loader. The source sequences if reverse if
         [params.reverse].
@@ -41,39 +51,70 @@ class Loader:
             path: A String specifying the path to the data file
         Returns:
             source: A python list of tensors; each element is a tensor
-                    representing a source sequence.
+                    representing a source sequence. tensors may have different
+                    length.
             target: A python list of tensors; each element is a tensor
-                    representing a target sequence.
+                    representing a target sequence. tensors may have different
+                    length.
         """
-        raise NotImplementedError
+        with open(path, "r") as data_file:
+            lines = data_file.readlines()
+            source = []
+            target = []
+            for l in lines:
+                s, t = l.split('|')
+                s = self.__split_to_tensor(s, reverse)
+                t = self.__split_to_tensor(t, reverse)
+                source.append(s)
+                target.append(t)
+            return source, target
 
-    def __iter__():
+
+    def __iter__(self):
         return self
 
-    def __next__():
-        max_size = self.data.source()[0]-1
-        if self.last * self.batch_size > self.data.source()[0]:
+    def __next__(self):
+        max_size = len(self.source)
+        if self.last * self.batch_size >= len(self.source):
             self.last = 0
             raise StopIteration
         return self.get_batch()
 
-    def __pad_batch(batch):
+    def __pad_batch(self, batch):
         """
         Pad a batch to have same length for all sequences.
         Args:
-            batch: A python list of [batch_size] tensors representing sequences
+            batch: A python list of [batch_size] tuple of tensors representing
+                   source and target sequences
         Returns:
-            pad_batch: A B*T Variable, B is [batch_size], T is the maximum
-                       length of sequences in the batch.
-            lengths:   A [1*batch_size] tensor; lengths[i] is the length of the
-                       batch[i].
+            pad_source: A B*T Variable, B is [batch_size], T is the maximum
+                        length of source sequences in the batch.
+            pad_source: A B*T Variable, B is [batch_size], T is the maximum
+                        length of target sequences in the batch.
+            source_lengths: A [1*batch_size] list; lengths[i] is the length of the
+                     batch[i].
+            target_lengths: A [1*batch_size] list; lengths[i] is the length of the
+                     batch[i].
         """
-        raise NotImplementedError
+        pair_sort = sorted(batch, key=lambda p:len(p[0]), reverse=True)
+        source, target = zip(*pair_sort)
+        max_source_length = len(source[0])
+        source_lengths = [len(i) for i in source]
+        target_lengths = [len(i) for i in target]
+        max_target_length = max(target_lengths)
+        pad_source = []
+        pad_target = []
+        for i in range(len(source)):
+            pad_source.append(source[i] + [self.PAD for j in range(max_source_length-source_lengths[i])])
+            pad_target.append(target[i] + [self.PAD for j in range(max_target_length-target_lengths[i])])
+        source_words = Variable(torch.LongTensor(pad_source)).transpose(0, 1)
+        target_words = Variable(torch.LongTensor(pad_target)).transpose(0, 1)
+        return source_words, source_lengths, target_words, target_lengths
 
     def shuffle(mode="train"):
         raise NotImplementedError
 
-    def get_batch():
+    def get_batch(self):
         """
         Get a batch of source and target sequences.
         Returns:
@@ -86,7 +127,8 @@ class Loader:
         target_lengths: A [1*batch_size] tensor; lengths[i] is the length of the
                        batch[i].
         """
-
-
-
+        start = self.last * self.batch_size
+        end = min((self.last+1) * self.batch_size, len(self.source)-1)
+        self.last += 1
+        return self.__pad_batch(zip(self.source[start:end], self.target[start:end]))
 
