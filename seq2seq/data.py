@@ -2,6 +2,8 @@ import argparse
 import torch
 from torch.autograd import Variable
 from torch.utils.data import Dataset
+from torch import Tensor
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 def parse():
     parser = argparse.ArgumentParser(description='Pass Parameters for Seq2Seq Model')
@@ -21,9 +23,18 @@ def parse():
                         type=str, default="../Data/movie_25000")
     parser.add_argument('--reverse', dest="reverse", action="store_const",
                         const=True, default=False, )
+    parser.add_argument('--no-cuda', action='store_true', default=False,
+                    help='disables CUDA training')
+    parser.add_argument('--seed', type=int, default=1, metavar='S',
+                    help='random seed (default: 1)')
+    parser.add_argument('--lr', type=float, default=0.1, metavar='LR',
+                    help='learning rate (default: 0.1)')
+    parser.add_argument('--epochs', type=int, default=10, metavar='N',
+                    help='number of epochs to train (default: 10)')
     # parser.add_argument('--testpath', dest="test_path", type=str, default="../Data/t_given_s_train.txt")
-
-    return parser.parse_args()
+    args = parser.parse_args()
+    args.cuda = not args.no_cuda and torch.cuda.is_available()
+    return args
 
 class OpenSub(Dataset):
     def __init__(self, params, path=None):
@@ -32,13 +43,18 @@ class OpenSub(Dataset):
         self.params = params
         self.EOS = params.vocab_size+1
         self.SOS = params.vocab_size+2
-        self.source, self.target = self.__read_data(path, params.reverse)
+        self.PAD = params.vocab_size+3
+        self.source, self.target = self.__read_data(path)
+        self.length = len(self.source)
+
+    def __len__(self):
+        return self.length
 
     def __split_to_tensor(self, line):
         line = line.split()
         arr = [int(i) for i in line]
-        arr.append(self.params.EOS)
-        return arr
+        arr.append(self.EOS)
+        return Tensor(arr)
 
     def __read_data(self, path):
         """
@@ -82,7 +98,7 @@ class OpenSub(Dataset):
         return self.source[idx], self.target[idx]
 
 
-def pad_batch(self, batch):
+def pad_batch(batch, PAD):
     """
      Pad a batch to have same length for all sequences.
      Args:
@@ -100,16 +116,17 @@ def pad_batch(self, batch):
     """
     pair_sort = sorted(batch, key=lambda p:len(p[0]), reverse=True)
     source, target = zip(*pair_sort)
+    batch_size = len(source)
     max_source_length = len(source[0])
     source_lengths = [len(i) for i in source]
     target_lengths = [len(i) for i in target]
     max_target_length = max(target_lengths)
-    pad_source = []
-    pad_target = []
-    for i in range(len(source)):
-        pad_source.append(source[i] + [self.PAD for j in range(max_source_length-source_lengths[i])])
-        pad_target.append(target[i] + [self.PAD for j in range(max_target_length-target_lengths[i])])
-    source_words = Variable(torch.LongTensor(pad_source)).transpose(0, 1)
-    target_words = Variable(torch.LongTensor(pad_target)).transpose(0, 1)
+    def pad(tensors, max_len, lens, batch_size):
+        pad = Tensor(max_len, batch_size)
+        for i in range(batch_size):
+            pad[:, i] = torch.cat((tensors[i],PAD*torch.ones(max_len-lens[i])))
+        return pad
+    source_words = pad(source, max_source_length, source_lengths, batch_size)
+    target_words = pad(target, max_target_length, target_lengths, batch_size)
     return source_words, source_lengths, target_words, target_lengths
 
