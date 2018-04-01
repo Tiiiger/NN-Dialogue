@@ -11,9 +11,9 @@ def parse():
                         const=True, default=False, help='use the pretrain model \
                         to run')
     parser.add_argument('--trainpath', dest="train_path", type=str,
-                        default="../Data/t_given_s_train.txt")
+                        default="../data/t_given_s_train.txt")
     parser.add_argument('--testpath', dest="test_path", type=str,
-                        default="../Data/t_given_s_test.txt")
+                        default="../data/t_given_s_test.txt")
     parser.add_argument('--vocabsize', dest="vocab_size",
                         type=int, default=25000)
     parser.add_argument('--clip', dest="clip_thresh", type=int, default=5)
@@ -25,22 +25,19 @@ def parse():
 
     return parser.parse_args()
 
-class Loader(Dataset):
+class OpenSub(Dataset):
     def __init__(self, params, path=None):
         if path==None:
             path = params.train_path
         self.params = params
         self.EOS = params.vocab_size+1
         self.SOS = params.vocab_size+2
-        self.UNKNOWN = params.vocab_size+3
-        self.PAD = params.vocab_size+4
-        self.last = 0
-        self.batch_size = params.batch_size
         self.source, self.target = self.__read_data(path, params.reverse)
 
     def __split_to_tensor(self, line):
         line = line.split()
         arr = [int(i) for i in line]
+        arr.append(self.params.EOS)
         return arr
 
     def __read_data(self, path):
