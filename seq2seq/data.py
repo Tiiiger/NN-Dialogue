@@ -1,6 +1,7 @@
 import argparse
 import torch
 from torch.autograd import Variable
+from torch.utils.data import Dataset
 
 def parse():
     parser = argparse.ArgumentParser(description='Pass Parameters for Seq2Seq Model')
@@ -24,7 +25,7 @@ def parse():
 
     return parser.parse_args()
 
-class Loader:
+class Loader(Dataset):
     def __init__(self, params, path=None):
         if path==None:
             path = params.train_path
@@ -37,13 +38,12 @@ class Loader:
         self.batch_size = params.batch_size
         self.source, self.target = self.__read_data(path, params.reverse)
 
-    def __split_to_tensor(self, line, rev=False):
+    def __split_to_tensor(self, line):
         line = line.split()
         arr = [int(i) for i in line]
-        if rev: arr.reverse()
         return arr
 
-    def __read_data(self, path, reverse):
+    def __read_data(self, path):
         """
         Read the data into this data loader. The source sequences if reverse if
         [params.reverse].
@@ -63,58 +63,13 @@ class Loader:
             target = []
             for l in lines:
                 s, t = l.split('|')
-                s = self.__split_to_tensor(s, reverse)
-                t = self.__split_to_tensor(t, reverse)
+                s = self.__split_to_tensor(s)
+                t = self.__split_to_tensor(t)
                 source.append(s)
                 target.append(t)
             return source, target
 
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        max_size = len(self.source)
-        if self.last * self.batch_size >= len(self.source):
-            self.last = 0
-            raise StopIteration
-        return self.get_batch()
-
-    def __pad_batch(self, batch):
-        """
-        Pad a batch to have same length for all sequences.
-        Args:
-            batch: A python list of [batch_size] tuple of tensors representing
-                   source and target sequences
-        Returns:
-            pad_source: A B*T Variable, B is [batch_size], T is the maximum
-                        length of source sequences in the batch.
-            pad_source: A B*T Variable, B is [batch_size], T is the maximum
-                        length of target sequences in the batch.
-            source_lengths: A [1*batch_size] list; lengths[i] is the length of the
-                     batch[i].
-            target_lengths: A [1*batch_size] list; lengths[i] is the length of the
-                     batch[i].
-        """
-        pair_sort = sorted(batch, key=lambda p:len(p[0]), reverse=True)
-        source, target = zip(*pair_sort)
-        max_source_length = len(source[0])
-        source_lengths = [len(i) for i in source]
-        target_lengths = [len(i) for i in target]
-        max_target_length = max(target_lengths)
-        pad_source = []
-        pad_target = []
-        for i in range(len(source)):
-            pad_source.append(source[i] + [self.PAD for j in range(max_source_length-source_lengths[i])])
-            pad_target.append(target[i] + [self.PAD for j in range(max_target_length-target_lengths[i])])
-        source_words = Variable(torch.LongTensor(pad_source)).transpose(0, 1)
-        target_words = Variable(torch.LongTensor(pad_target)).transpose(0, 1)
-        return source_words, source_lengths, target_words, target_lengths
-
-    def shuffle(mode="train"):
-        raise NotImplementedError
-
-    def get_batch(self):
+    def __getitem__(self, idx):
         """
         Get a batch of source and target sequences.
         Returns:
@@ -127,8 +82,37 @@ class Loader:
         target_lengths: A [1*batch_size] tensor; lengths[i] is the length of the
                        batch[i].
         """
-        start = self.last * self.batch_size
-        end = min((self.last+1) * self.batch_size, len(self.source)-1)
-        self.last += 1
-        return self.__pad_batch(zip(self.source[start:end], self.target[start:end]))
+        return self.source[idx], self.target[idx]
+
+
+def pad_batch(self, batch):
+    """
+     Pad a batch to have same length for all sequences.
+     Args:
+         batch: A python list of [batch_size] tuple of tensors representing
+                source and target sequences
+     Returns:
+         pad_source: A B*T Variable, B is [batch_size], T is the maximum
+                     length of source sequences in the batch.
+         pad_source: A B*T Variable, B is [batch_size], T is the maximum
+                     length of target sequences in the batch.
+         source_lengths: A [1*batch_size] list; lengths[i] is the length of the
+                  batch[i].
+         target_lengths: A [1*batch_size] list; lengths[i] is the length of the
+                  batch[i].
+    """
+    pair_sort = sorted(batch, key=lambda p:len(p[0]), reverse=True)
+    source, target = zip(*pair_sort)
+    max_source_length = len(source[0])
+    source_lengths = [len(i) for i in source]
+    target_lengths = [len(i) for i in target]
+    max_target_length = max(target_lengths)
+    pad_source = []
+    pad_target = []
+    for i in range(len(source)):
+        pad_source.append(source[i] + [self.PAD for j in range(max_source_length-source_lengths[i])])
+        pad_target.append(target[i] + [self.PAD for j in range(max_target_length-target_lengths[i])])
+    source_words = Variable(torch.LongTensor(pad_source)).transpose(0, 1)
+    target_words = Variable(torch.LongTensor(pad_target)).transpose(0, 1)
+    return source_words, source_lengths, target_words, target_lengths
 
