@@ -8,7 +8,7 @@ from data import parse, OpenSub, pad_batch
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 
-def masked_cross_entropy_loss():
+def masked_cross_entropy_loss(logits, max_length, lens):
     raise NotImplemented
 
 class Encoder(Module):
@@ -21,6 +21,18 @@ class Encoder(Module):
         raise NotImplemented
 
     def save_model(self, path):
+        raise NotImplemented
+
+class Attention(Module):
+
+    def __init__(self):
+        super(Attention, self).__init__()
+        raise NotImplemented
+
+    def forward(self, source_outputs):
+        raise NotImplemented
+
+    def backward(self, source_outputs):
         raise NotImplemented
 
 class Decoder(Module):
