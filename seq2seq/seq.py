@@ -13,12 +13,22 @@ def masked_cross_entropy_loss(logits, max_length, lens):
 
 class Encoder(Module):
 
-    def __init__(self, params):
+    def __init__(self, args):
         super(Encoder, self).__init__()
-        raise NotImplemented
-
-    def forward(self, source, lens, hidden=None):
-        raise NotImplemented
+        self.embedding = torch.nn.Embedding(args.vocab_size, args.embed_size)
+        self.lstm = torch.nn.LSTM(input_size=args.embed_size,
+                                  hidden_size=args.hidden_size,
+                                  num_layers=4,
+                                  bidirectional=True)
+    def forward(self, source, lens, hidden):
+        dense = self.embedding(source)
+        packed_dense = pack_padded_sequence(dense, lens)
+        packed_outputs, hidden = self.lstm(packed_dense, hidden)
+        def _cat(hidden):
+            torch.cat(hidden[0:hidden.size(0):2], hidden[1:hidden.size(0):2], 2)
+        hidden = tuple(_cat(h) for h in hidden)
+        outputs = pad_packed_sequence(packed_outputs)
+        return outupts, hidden
 
     def save_model(self, path):
         raise NotImplemented

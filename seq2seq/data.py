@@ -18,6 +18,10 @@ def parse():
                         default="../data/t_given_s_test.txt")
     parser.add_argument('--vocabsize', dest="vocab_size",
                         type=int, default=25000)
+    parser.add_argument('--hiddensize', dest="hidden_size",
+                        type=int, default=1000)
+    parser.add_argument('--embedsize', dest="embed_size",
+                        type=int, default=1000)
     parser.add_argument('--clip', dest="clip_thresh", type=int, default=5)
     parser.add_argument('--dictpath', dest="dict_path",
                         type=str, default="../Data/movie_25000")
