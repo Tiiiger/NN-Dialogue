@@ -12,3 +12,6 @@ def length_to_mask(lengths, longest=None):
     lengths = LongTensor(lengths).unsqueeze(0).expand(batch_size, longest)
     mask = index < lengths
     return mask
+
+def masked_cross_entropy_loss(logits, max_length, lens):
+    raise NotImplemented

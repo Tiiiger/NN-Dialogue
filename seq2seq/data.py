@@ -130,8 +130,8 @@ def pad_batch(batch, PAD):
     def pad(tensors, max_len, lens, batch_size):
         pad = Tensor(max_len, batch_size)
         for i in range(batch_size):
-            pad[:, i] = torch.cat((tensors[i],PAD*torch.ones(max_len-lens[i])))
-        return pad
+            pad[:, i] = torch.cat((tensors[i], PAD*torch.ones(max_len-lens[i])))
+        return pad.long()
     source_words = pad(source, max_source_length, source_lengths, batch_size)
     target_words = pad(target, max_target_length, target_lengths, batch_size)
     return source_words, source_lengths, target_words, target_lengths

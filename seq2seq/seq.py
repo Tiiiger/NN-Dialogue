@@ -6,16 +6,13 @@ from torch import optim
 import torch.nn.functional as F
 from data import parse, OpenSub, pad_batch
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
-
-
-def masked_cross_entropy_loss(logits, max_length, lens):
-    raise NotImplemented
+from utils import length_to_mask, masked_cross_entropy_loss
 
 class Encoder(Module):
 
     def __init__(self, args):
         super(Encoder, self).__init__()
-        self.embedding = nn.Embedding(args.vocab_size, args.embed_size)
+        self.embedding = nn.Embedding(args.vocab_size+4, args.embed_size)
         self.lstm = nn.LSTM(input_size=args.embed_size,
                                   hidden_size=args.hidden_size,
                                   num_layers=4,
@@ -25,10 +22,10 @@ class Encoder(Module):
         packed_dense = pack_padded_sequence(dense, lens)
         packed_outputs, hidden = self.lstm(packed_dense, hidden)
         def _cat(hidden):
-            torch.cat(hidden[0:hidden.size(0):2], hidden[1:hidden.size(0):2], 2)
+            torch.cat((hidden[0:hidden.size(0):2], hidden[1:hidden.size(0):2]), 2)
         hidden = tuple(_cat(h) for h in hidden)
         outputs = pad_packed_sequence(packed_outputs)
-        return outupts, hidden
+        return outputs, hidden
 
     def save_model(self, path):
         torch.save(self, PATH)
@@ -110,13 +107,16 @@ def train(epoch):
     decoder.train()
     for batch_idx, (source, source_lens, target, target_lens) in enumerate(train_loader):
         source, target = Variable(source), Variable(target)
-        if args.cuda():
+        if args.cuda:
             source, target = source.cuda(), target.cuda()
         encoder_outputs, encoder_last_hidden = encoder(source, source_lens, None)
+        raise NotImplementedError
 
 def test():
     raise NotImplementedError
 
 def evaluate():
     raise NotImplementedError
+
+train(1)
 
