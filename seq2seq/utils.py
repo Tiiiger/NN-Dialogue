@@ -8,8 +8,8 @@ def length_to_mask(lengths, longest=None):
         longest = max(lengths)
     batch_size = len(lengths)
     index = torch.arange(0, longest).long()
-    index = indewx.unsqueeze(0).expand(batch_size, longest)
-    lengths = LongTensor(lengths).unsqueeze(0).expand(batch_size, longest)
+    index = index.expand(batch_size, longest)
+    lengths = LongTensor(lengths).unsqueeze(1).expand(batch_size, longest)
     mask = index < lengths
     return mask
 

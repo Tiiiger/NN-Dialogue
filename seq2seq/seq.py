@@ -94,8 +94,12 @@ train_data = OpenSub(args)
 test_data = OpenSub(args, "../Data/t_given_s_test.txt")
 PAD = train_data.PAD
 collate = lambda x:pad_batch(x, PAD)
-train_loader = torch.utils.data.DataLoader(train_data, batch_size=args.batch_size, shuffle=True, collate_fn=collate, **kwargs)
-test_loader = torch.utils.data.DataLoader(test_data, batch_size=args.batch_size, shuffle=True, **kwargs)
+train_loader = torch.utils.data.DataLoader(train_data,
+                                           batch_size=args.batch_size,
+                                           shuffle=True, collate_fn=collate, **kwargs)
+test_loader = torch.utils.data.DataLoader(test_data,
+                                          batch_size=args.batch_size,
+                                          shuffle=True, collate_fn=collate, **kwargs)
 
 encoder = Encoder(args).cuda() if args.cuda else Encoder(args)
 decoder = Decoder(args).cuda() if args.cuda else Decoder(args)
