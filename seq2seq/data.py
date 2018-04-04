@@ -22,6 +22,8 @@ def parse():
                         type=int, default=1000)
     parser.add_argument('--embedsize', dest="embed_size",
                         type=int, default=1000)
+    parser.add_argument('--layers', dest="num_layers",
+                        type=int, default=4)
     parser.add_argument('--clip', dest="clip_thresh", type=int, default=5)
     parser.add_argument('--dictpath', dest="dict_path",
                         type=str, default="../Data/movie_25000")
