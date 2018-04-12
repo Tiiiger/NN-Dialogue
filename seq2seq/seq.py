@@ -4,23 +4,24 @@ from torch.nn import Module
 from torch.autograd import Variable
 from torch import optim
 import torch.nn.functional as F
-from data import parse, OpenSub, pad_batch
+from data import  OpenSub, pad_batch
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
-from utils import length_to_mask, masked_cross_entropy_loss
+from utils import parse, length_to_mask, masked_cross_entropy_loss
 
 class Encoder(Module):
 
     def __init__(self, args):
         super(Encoder, self).__init__()
         self.embedding = nn.Embedding(args.vocab_size+4, args.embed_size)
-        self.lstm = nn.LSTM(input_size=args.embed_size,
+        # Only accept 4 layers bi-directional LSTM right now
+        self.rnn = nn.LSTM(input_size=args.embed_size,
                                   hidden_size=args.hidden_size,
                                   num_layers=4,
                                   bidirectional=True)
     def forward(self, source, lens, hidden=None):
         dense = self.embedding(source)
         packed_dense = pack_padded_sequence(dense, lens)
-        packed_outputs, hidden = self.lstm(packed_dense, hidden)
+        packed_outputs, hidden = self.rnn(packed_dense, hidden)
         def _cat(hidden):
             torch.cat((hidden[0:hidden.size(0):2], hidden[1:hidden.size(0):2]), 2)
         hidden = tuple(_cat(h) for h in hidden)
@@ -123,4 +124,3 @@ def evaluate():
     raise NotImplementedError
 
 train(1)
-

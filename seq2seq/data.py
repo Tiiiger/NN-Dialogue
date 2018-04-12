@@ -1,46 +1,9 @@
-import argparse
 import torch
 from torch.autograd import Variable
 from torch.utils.data import Dataset
 from torch import Tensor
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
-def parse():
-    parser = argparse.ArgumentParser(description='Pass Parameters for Seq2Seq Model')
-    parser.add_argument('--batch', dest='batch_size', type=int, default=4,
-                        help='define the batch size of training process')
-    parser.add_argument('--pretrain', dest='pretrain', action="store_const",
-                        const=True, default=False, help='use the pretrain model \
-                        to run')
-    parser.add_argument('--trainpath', dest="train_path", type=str,
-                        default="../data/t_given_s_train.txt")
-    parser.add_argument('--testpath', dest="test_path", type=str,
-                        default="../data/t_given_s_test.txt")
-    parser.add_argument('--vocabsize', dest="vocab_size",
-                        type=int, default=25000)
-    parser.add_argument('--hiddensize', dest="hidden_size",
-                        type=int, default=1000)
-    parser.add_argument('--embedsize', dest="embed_size",
-                        type=int, default=1000)
-    parser.add_argument('--layers', dest="num_layers",
-                        type=int, default=4)
-    parser.add_argument('--clip', dest="clip_thresh", type=int, default=5)
-    parser.add_argument('--dictpath', dest="dict_path",
-                        type=str, default="../Data/movie_25000")
-    parser.add_argument('--reverse', dest="reverse", action="store_const",
-                        const=True, default=False, )
-    parser.add_argument('--no-cuda', action='store_true', default=False,
-                    help='disables CUDA training')
-    parser.add_argument('--seed', type=int, default=1, metavar='S',
-                    help='random seed (default: 1)')
-    parser.add_argument('--lr', type=float, default=0.1, metavar='LR',
-                    help='learning rate (default: 0.1)')
-    parser.add_argument('--epochs', type=int, default=10, metavar='N',
-                    help='number of epochs to train (default: 10)')
-    # parser.add_argument('--testpath', dest="test_path", type=str, default="../Data/t_given_s_train.txt")
-    args = parser.parse_args()
-    args.cuda = not args.no_cuda and torch.cuda.is_available()
-    return args
 
 class OpenSub(Dataset):
     def __init__(self, params, path=None):
