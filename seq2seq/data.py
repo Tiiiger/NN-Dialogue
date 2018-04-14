@@ -13,6 +13,7 @@ class OpenSub(Dataset):
         self.EOS = params.vocab_size+1
         self.SOS = params.vocab_size+2
         self.PAD = params.vocab_size+3
+        self.vocab_size = params.vocab_size+3
         self.source, self.target = self.__read_data(path)
         self.length = len(self.source)
 
