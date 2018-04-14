@@ -75,6 +75,7 @@ class Decoder(Module):
         args:
         target: A LongTensor contains a word of the target sentence. size: 1*B.
         """
+        target = target.unsqueeze(0)
         embed_target = self.embed(target)
         decoder_outputs, decoder_hiddens = self.rnn(embed_target, hidden)
         atten_scores = self.attention(decoder_outputs,
@@ -121,12 +122,17 @@ def train(epoch):
             source, target = source.cuda(), target.cuda()
         encoder_outputs, encoder_last_hidden = encoder(source, source_lens, None)
         max_target_len = max(target_lens)
-        decoder_outputs = torch.zeros(max_target_len, args.batch_size, args.vocab_size) # preallocate
+        decoder_outputs = Variable(torch.zeros(max_target_len, args.batch_size, args.vocab_size)) # preallocate
         decoder_hidden = encoder_last_hidden
-        target_slice = Variable(torch.zeros(1, args.batch_size).fill_(train_data.SOS).long())
+        target_slice = Variable(torch.zeros(args.batch_size).fill_(train_data.SOS).long())
         for l in range(max_target_len):
-            predictions, decoder_hiddens, atten_scores = decoder(target_slice, encoder_outputs, source_lens, decoder_hidden)
-            raise NotImplementedError
+            predictions, decoder_hidden, atten_scores = decoder(target_slice, encoder_outputs, source_lens, decoder_hidden)
+            decoder_outputs[l] = predictions
+            target_slice = target[l] # use teacher forcing
+            # _, target_slice = predictions.max(0) # use own predictions
+            # detach hidden states
+            # for h in decoder_hidden:
+            #     h.detach_()
         raise NotImplementedError
 
 def test():
