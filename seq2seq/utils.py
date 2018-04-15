@@ -1,8 +1,7 @@
 import argparse
 import torch
-from torch.nn.functional import softmax
-from torch import LongTensor
-from torch import Tensor
+from torch.nn.functional import softmax, log_softmax
+from torch import LongTensor,Tensor
 from torch.autograd import Variable
 
 def parse():
@@ -52,14 +51,15 @@ def length_to_mask(lengths, longest=None):
     mask = index < lengths
     return mask
 
-def masked_cross_entropy_loss(logits, max_length, lens):
+def masked_cross_entropy_loss(logits, target, mask):
     # credit: https://github.com/spro/practical-pytorch/blob/master/seq2seq-translation/masked_cross_entropy.py
     logits_flat = logits.view(-1, logits.size(-1))
-    log_probs_flat = functional.log_softmax(logits_flat)
+    log_probs_flat = log_softmax(logits_flat)
     target_flat = target.view(-1, 1)
     losses_flat = -torch.gather(log_probs_flat, dim=1, index=target_flat)
-    losses = losses_flat.view(*target.size())
-    mask = sequence_mask(sequence_length=length, max_len=target.size(1))
-    losses = losses * mask.float()
-    loss = losses.sum() / length.float().sum()
+    length, batch_size = target.size()
+    losses = losses_flat.view(batch_size, length)
+    losses = losses * Variable(mask.float())
+    # loss = losses.sum() / mask.sum()
+    loss = losses.mean()
     return loss

@@ -67,7 +67,7 @@ class Decoder(Module):
                            num_layers = 4,
                            bidirectional=False)
         self.output = nn.Linear(4*args.hidden_size, args.hidden_size)
-        self.predict = nn.Linear(args.hidden_size, args.vocab_size)
+        self.predict = nn.Linear(args.hidden_size, args.vocab_size+4)
         self.attention = Attention(args)
 
     def forward(self, target, encoder_outputs, source_lengths, hidden=None):
@@ -122,17 +122,25 @@ def train(epoch):
             source, target = source.cuda(), target.cuda()
         encoder_outputs, encoder_last_hidden = encoder(source, source_lens, None)
         max_target_len = max(target_lens)
-        decoder_outputs = Variable(torch.zeros(max_target_len, args.batch_size, args.vocab_size)) # preallocate
         decoder_hidden = encoder_last_hidden
         target_slice = Variable(torch.zeros(args.batch_size).fill_(train_data.SOS).long())
+        # preallocate 
+        decoder_outputs = Variable(torch.zeros(max_target_len, args.batch_size, args.vocab_size+4)) # preallocate
+        pred_seq = torch.zeros_like(target)
         for l in range(max_target_len):
             predictions, decoder_hidden, atten_scores = decoder(target_slice, encoder_outputs, source_lens, decoder_hidden)
             decoder_outputs[l] = predictions
+            pred_words = predictions.max(0)[1]
+            pred_seq = pred_words
             target_slice = target[l] # use teacher forcing
-            # _, target_slice = predictions.max(0) # use own predictions
             # detach hidden states
             # for h in decoder_hidden:
             #     h.detach_()
+        mask = Variable(length_to_mask(target_lens).float())
+        loss = masked_cross_entropy_loss(decoder_outputs, target, mask)
+        correct = torch.eq(target * mask, pred_seq * mask).sum
+        total = mask.sum()
+        accuracy = correct / total
         raise NotImplementedError
 
 def test():
