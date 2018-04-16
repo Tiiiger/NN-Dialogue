@@ -108,7 +108,7 @@ class Decoder(Module):
         concat = torch.cat([context, decoder_outputs.transpose(0,1)], -1)
         atten_outputs = F.tanh(self.output(concat))
         predictions = self.predict(atten_outputs)
-        predictions.squeeze_(1)
+        predictions = predictions.squeeze(1)
         return predictions, decoder_hiddens, atten_scores
 
 train_data = OpenSub(args)
@@ -142,25 +142,30 @@ def train(epoch):
         decoder_hidden = encoder_last_hidden
         target_slice = Variable(torch.zeros(args.batch_size).fill_(train_data.SOS).long())
         # preallocate 
-        decoder_outputs = Variable(torch.zeros(max_target_len, args.batch_size, args.vocab_size+4)) # preallocate
+        # decoder_outputs = Variable(torch.zeros(max_target_len, args.batch_size, args.vocab_size+4)) # preallocate
+        decoder_outputs = []
         pred_seq = torch.zeros_like(target)
         for l in range(max_target_len):
             predictions, decoder_hidden, atten_scores = decoder(target_slice, encoder_outputs, source_lens, decoder_hidden)
-            decoder_outputs[l] = predictions
+            # decoder_outputs[l] = predictions
+            decoder_outputs.append(predictions)
             pred_words = predictions.max(1)[1]
             pred_seq[l] = pred_words
             target_slice = target[l] # use teacher forcing
             # detach hidden states
             # for h in decoder_hidden:
             #     h.detach_()
-        mask = Variable(length_to_mask(target_lens).float(), requires_grad=False)
+        mask = Variable(length_to_mask(target_lens).float())
+        decoder_outputs = torch.stack(decoder_outputs)
+
         loss = masked_cross_entropy_loss(decoder_outputs, target, mask)
+        loss.backward()
+
         mask.transpose_(0,1)
         correct = float(torch.eq(target.float() * mask, pred_seq.float() * mask).sum())
         total = float(mask.sum())
         accuracy = correct / total
-
-        loss.backward()
+        print(accuracy)
 
         if batch_id+1 % args.log_interval == 0:
             step = epoch * len(train_loader) + batch_id
@@ -169,7 +174,6 @@ def train(epoch):
         #TODO: Gradient Clip
         encoder_optim.step()
         decoder_optim.step()
-        raise NotImplementedError
 
 def test():
     raise NotImplementedError

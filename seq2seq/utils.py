@@ -6,7 +6,7 @@ from torch.autograd import Variable
 
 def parse():
     parser = argparse.ArgumentParser(description='Pass Parameters for Seq2Seq Model')
-    parser.add_argument('--batch', dest='batch_size', type=int, default=4,
+    parser.add_argument('--batch', dest='batch_size', type=int, default=256,
                         help='define the batch size of training process')
     parser.add_argument('--pretrain', dest='pretrain', action="store_const",
                         const=True, default=False, help='use the pretrain model \
@@ -36,8 +36,10 @@ def parse():
                     help='learning rate (default: 0.1)')
     parser.add_argument('--epochs', type=int, default=10, metavar='N',
                     help='number of epochs to train (default: 10)')
-    parser.add_argument('--log-name', type=str, default="sea", metavar='S',
+    parser.add_argument('--log-name', type=str, default="seq", metavar='S',
                     help='name of current model')
+    parser.add_argument('--log-interval', type=int, default=100, metavar='N',
+                    help='intervals of writing tensorboard')
     # parser.add_argument('--testpath', dest="test_path", type=str, default="../Data/t_given_s_train.txt")
     args = parser.parse_args()
     args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -61,7 +63,7 @@ def masked_cross_entropy_loss(logits, target, mask):
     losses_flat = -torch.gather(log_probs_flat, dim=1, index=target_flat)
     length, batch_size = target.size()
     losses = losses_flat.view(batch_size, length)
-    losses = losses * mask.float()
+    losses = losses * mask
     # loss = losses.sum() / mask.sum()
     loss = losses.mean()
     return loss
