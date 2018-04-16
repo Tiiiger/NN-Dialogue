@@ -210,9 +210,14 @@ def test(epoch):
     raise NotImplementedError
 
 def evaluate():
+    """
+    TODO:
+    1. get BLEU score
+    2. save attention
+    """
     raise NotImplementedError
 
-for ep in args.epoch:
-    train(eq)
+for ep in range(args.epoch):
+    train(ep)
     if ep % args.eval_interval == 0:
         test(ep)
