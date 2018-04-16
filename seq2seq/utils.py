@@ -6,8 +6,12 @@ from torch.autograd import Variable
 
 def parse():
     parser = argparse.ArgumentParser(description='Pass Parameters for Seq2Seq Model')
-    parser.add_argument('--batch', dest='batch_size', type=int, default=256,
-                        help='define the batch size of training process')
+    parser.add_argument('--epoch', dest='epoch', type=int, default=120,
+                        help='total epoch of training')
+    parser.add_argument('--batch', dest='batch_size', type=int, default=4,
+                        help='batch size of training ')
+    parser.add_argument('--num-workers', type=int, default=4,
+                        help='number of workers ')
     parser.add_argument('--pretrain', dest='pretrain', action="store_const",
                         const=True, default=False, help='use the pretrain model \
                         to run')
@@ -40,6 +44,8 @@ def parse():
                     help='name of current model')
     parser.add_argument('--log-interval', type=int, default=100, metavar='N',
                     help='intervals of writing tensorboard')
+    parser.add_argument('--eval-interval', type=int, default=1, metavar='N',
+                    help='intervals of validating')
     # parser.add_argument('--testpath', dest="test_path", type=str, default="../Data/t_given_s_train.txt")
     args = parser.parse_args()
     args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -67,3 +73,6 @@ def masked_cross_entropy_loss(logits, target, mask):
     # loss = losses.sum() / mask.sum()
     loss = losses.mean()
     return loss
+
+def get_bleu(predictions, target, length):
+    raise NotImplementedError

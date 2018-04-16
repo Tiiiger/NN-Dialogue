@@ -16,8 +16,6 @@ args = parse()
 torch.manual_seed(args.seed)
 if args.cuda:
     torch.cuda.manual_seed(args.seed)
-kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
-
 
 time_stamp = strftime("%y%m%d-%H:%M", localtime())
 writer = SummaryWriter(log_dir=os.path.join("..", "runs", "{}-{}".format(args.log_name, time_stamp)))
@@ -117,10 +115,12 @@ PAD = train_data.PAD
 collate = lambda x:pad_batch(x, PAD)
 train_loader = torch.utils.data.DataLoader(train_data,
                                            batch_size=args.batch_size,
-                                           shuffle=True, collate_fn=collate, **kwargs)
+                                           shuffle=True, collate_fn=collate,
+                                           num_workers=args.num_workers)
 test_loader = torch.utils.data.DataLoader(test_data,
-                                          batch_size=args.batch_size,
-                                          shuffle=True, collate_fn=collate, **kwargs)
+                                          batch_size=1000,
+                                          shuffle=True, collate_fn=collate,
+                                          num_workers=args.num_workers)
 
 encoder = Encoder(args).cuda() if args.cuda else Encoder(args)
 decoder = Decoder(args).cuda() if args.cuda else Decoder(args)
@@ -142,21 +142,20 @@ def train(epoch):
         decoder_hidden = encoder_last_hidden
         target_slice = Variable(torch.zeros(args.batch_size).fill_(train_data.SOS).long())
         # preallocate 
-        # decoder_outputs = Variable(torch.zeros(max_target_len, args.batch_size, args.vocab_size+4)) # preallocate
-        decoder_outputs = []
+        decoder_outputs = Variable(torch.zeros(max_target_len, args.batch_size, args.vocab_size+4)) # preallocate
         pred_seq = torch.zeros_like(target)
         for l in range(max_target_len):
             predictions, decoder_hidden, atten_scores = decoder(target_slice, encoder_outputs, source_lens, decoder_hidden)
-            # decoder_outputs[l] = predictions
-            decoder_outputs.append(predictions)
+            decoder_outputs[l] = predictions
             pred_words = predictions.max(1)[1]
             pred_seq[l] = pred_words
             target_slice = target[l] # use teacher forcing
+            #TODO: check if we need to detach
             # detach hidden states
             # for h in decoder_hidden:
             #     h.detach_()
         mask = Variable(length_to_mask(target_lens).float())
-        decoder_outputs = torch.stack(decoder_outputs)
+        if args.cuda: mask.cuda()
 
         loss = masked_cross_entropy_loss(decoder_outputs, target, mask)
         loss.backward()
@@ -175,11 +174,45 @@ def train(epoch):
         encoder_optim.step()
         decoder_optim.step()
 
-def test():
+def test(epoch):
+    encoder.eval()
+    decoder.eval()
+    test_loss = 0
+    test_correct = 0
+    test_total = 0
+    for batch_id, (source, source_lens, target, target_lens) in enumerate(test_loader):
+        source, target = Variable(source, volatile=True), Variable(target, volatile=True)
+        if args.cuda: source, target = source.cuda(), target.cuda()
+        encoder_outputs, encoder_last_hidden = encoder(source, source_lens, None)
+        max_target_len = max(target_lens)
+        decoder_hidden = encoder_last_hidden
+        target_slice = Variable(torch.zeros(args.batch_size).fill_(train_data.SOS).long())
+        decoder_outputs = Variable(torch.zeros(max_target_len, args.batch_size, args.vocab_size+4)) # preallocate
+        pred_seq = torch.zeros_like(target)
+        for l in range(max_target_len):
+            predictions, decoder_hidden, atten_scores = decoder(target_slice, encoder_outputs, source_lens, decoder_hidden)
+            decoder_outputs[l] = predictions
+            pred_words = predictions.max(1)[1]
+            pred_seq[l] = pred_words
+            target_slice = pred_words # use own predictions
+        mask = Variable(length_to_mask(target_lens).float(), volatile=True)
+        if args.cuda: mask.cuda()
+        test_loss += masked_cross_entropy_loss(decoder_outputs, target, mask)
+        mask.transpose_(0,1)
+        test_correct += float(torch.eq(target.float() * mask, pred_seq.float() * mask).sum())
+        test_total += float(mask.sum())
+
+    test_loss /= len(test_loader)
+    test_accuracy = test_correct / test_total
+    writer.add_scalar('val/accuracy', accuracy, epoch)
+    writer.add_scalar('val/loss', loss, epoch)
+
     raise NotImplementedError
 
 def evaluate():
     raise NotImplementedError
 
-
-train(1)
+for ep in args.epoch:
+    train(eq)
+    if ep % args.eval_interval == 0:
+        test(ep)
