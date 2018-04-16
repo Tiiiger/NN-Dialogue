@@ -8,6 +8,19 @@ import torch.nn.functional as F
 from data import  OpenSub, pad_batch
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from utils import parse, length_to_mask, masked_cross_entropy_loss
+from tensorboardX import SummaryWriter
+import os
+from time import strftime, localtime
+
+args = parse()
+torch.manual_seed(args.seed)
+if args.cuda:
+    torch.cuda.manual_seed(args.seed)
+kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
+
+
+time_stamp = strftime("%y%m%d-%H:%M", localtime())
+writer = SummaryWriter(log_dir=os.path.join("..", "runs", "{}-{}".format(args.log_name, time_stamp)))
 
 class Encoder(Module):
 
@@ -19,6 +32,12 @@ class Encoder(Module):
                                   hidden_size=args.hidden_size,
                                   num_layers=4,
                                   bidirectional=True)
+        for name, param in self.rnn.named_parameters():
+            if 'bias' in name:
+                nn.init.constant(param, 0.0)
+            elif 'weight' in name:
+                nn.init.uniform(param, -0.08, 0.08)
+
     def forward(self, source, lens, hidden=None):
         dense = self.embedding(source)
         packed_dense = pack_padded_sequence(dense, lens)
@@ -69,6 +88,11 @@ class Decoder(Module):
         self.output = nn.Linear(4*args.hidden_size, args.hidden_size)
         self.predict = nn.Linear(args.hidden_size, args.vocab_size+4)
         self.attention = Attention(args)
+        for name, param in self.rnn.named_parameters():
+            if 'bias' in name:
+                nn.init.constant(param, 0.0)
+            elif 'weight' in name:
+                nn.init.uniform(param, -0.08, 0.08)
 
     def forward(self, target, encoder_outputs, source_lengths, hidden=None):
         """
@@ -86,13 +110,6 @@ class Decoder(Module):
         predictions = self.predict(atten_outputs)
         predictions.squeeze_(1)
         return predictions, decoder_hiddens, atten_scores
-
-
-args = parse()
-torch.manual_seed(args.seed)
-if args.cuda:
-    torch.cuda.manual_seed(args.seed)
-kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
 
 train_data = OpenSub(args)
 test_data = OpenSub(args, "../Data/t_given_s_test.txt")
@@ -114,7 +131,7 @@ decoder_optim = optim.SGD(decoder.parameters(), lr=args.lr)
 def train(epoch):
     encoder.train()
     decoder.train()
-    for batch_idx, (source, source_lens, target, target_lens) in enumerate(train_loader):
+    for batch_id, (source, source_lens, target, target_lens) in enumerate(train_loader):
         encoder_optim.zero_grad()
         decoder_optim.zero_grad()
         source, target = Variable(source), Variable(target)
@@ -130,17 +147,28 @@ def train(epoch):
         for l in range(max_target_len):
             predictions, decoder_hidden, atten_scores = decoder(target_slice, encoder_outputs, source_lens, decoder_hidden)
             decoder_outputs[l] = predictions
-            pred_words = predictions.max(0)[1]
-            pred_seq = pred_words
+            pred_words = predictions.max(1)[1]
+            pred_seq[l] = pred_words
             target_slice = target[l] # use teacher forcing
             # detach hidden states
             # for h in decoder_hidden:
             #     h.detach_()
-        mask = Variable(length_to_mask(target_lens).float())
+        mask = Variable(length_to_mask(target_lens).float(), requires_grad=False)
         loss = masked_cross_entropy_loss(decoder_outputs, target, mask)
-        correct = torch.eq(target * mask, pred_seq * mask).sum
-        total = mask.sum()
+        mask.transpose_(0,1)
+        correct = float(torch.eq(target.float() * mask, pred_seq.float() * mask).sum())
+        total = float(mask.sum())
         accuracy = correct / total
+
+        loss.backward()
+
+        if batch_id+1 % args.log_interval == 0:
+            step = epoch * len(train_loader) + batch_id
+            writer.add_scalar('train/accuracy', accuracy, batch_id)
+            writer.add_scalar('train/loss', loss, batch_id)
+        #TODO: Gradient Clip
+        encoder_optim.step()
+        decoder_optim.step()
         raise NotImplementedError
 
 def test():
