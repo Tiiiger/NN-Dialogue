@@ -18,7 +18,7 @@ def parse():
     parser.add_argument('--trainpath', dest="train_path", type=str,
                         default="../data/processed/t_given_s_dialogue_length2_3_train.txt")
     parser.add_argument('--testpath', dest="test_path", type=str,
-                        default="../data/processed/t_given_s_dailoague_length2_3_test.txt")
+                        default="../data/processed/t_given_s_dialogue_length2_3_test.txt")
     parser.add_argument('--vocabsize', dest="vocab_size",
                         type=int, default=25000)
     parser.add_argument('--hiddensize', dest="hidden_size",
@@ -46,6 +46,8 @@ def parse():
                     help='intervals of writing tensorboard')
     parser.add_argument('--eval-interval', type=int, default=1, metavar='N',
                     help='intervals of validating')
+    parser.add_argument('--global-max-target-len', type=int, default=100, metavar='N',
+                    help='intervals of validating')
     # parser.add_argument('--testpath', dest="test_path", type=str, default="../Data/t_given_s_train.txt")
     args = parser.parse_args()
     args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -70,7 +72,6 @@ def masked_cross_entropy_loss(logits, target, mask):
     length, batch_size = target.size()
     losses = losses_flat.view(batch_size, length)
     losses = losses * mask
-    # loss = losses.sum() / mask.sum()
     loss = losses.mean()
     return loss
 

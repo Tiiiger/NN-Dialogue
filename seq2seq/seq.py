@@ -19,7 +19,8 @@ if args.cuda:
 
 time_stamp = strftime("%y%m%d-%H:%M", localtime())
 writer = SummaryWriter(log_dir=os.path.join("..", "runs", "{}-{}".format(args.log_name, time_stamp)))
-
+cuda_prompt = "you are using cuda." if args.cuda else "you are not using cuda."
+print("start model building, "+cuda_prompt)
 class Encoder(Module):
 
     def __init__(self, args):
@@ -28,7 +29,7 @@ class Encoder(Module):
         # Only accept 4 layers bi-directional LSTM right now
         self.rnn = nn.LSTM(input_size=args.embed_size,
                                   hidden_size=args.hidden_size,
-                                  num_layers=4,
+                                  num_layers=args.num_layers,
                                   bidirectional=True)
         for name, param in self.rnn.named_parameters():
             if 'bias' in name:
@@ -70,6 +71,7 @@ class Attention(Module):
         scores = decoder_outputs.bmm(projected_encoder_outputs)
         scores = scores.squeeze(1)
         mask = length_to_mask(source_lengths, source_lengths[0])
+        if args.cuda: mask = mask.cuda()
         scores.data.masked_fill_(mask, float('-inf'))
         scores = F.softmax(scores, dim=1)
         return scores.unsqueeze(1)
@@ -81,11 +83,11 @@ class Decoder(Module):
         self.embed = nn.Embedding(args.vocab_size+4, args.embed_size)
         self.rnn = nn.LSTM(input_size = args.embed_size,
                            hidden_size = 2 * args.hidden_size,
-                           num_layers = 4,
+                           num_layers = args.num_layers,
                            bidirectional=False)
         self.output = nn.Linear(4*args.hidden_size, args.hidden_size)
         self.predict = nn.Linear(args.hidden_size, args.vocab_size+4)
-        self.attention = Attention(args).cuda if args.use_cuda else Attention(args)
+        self.attention = Attention(args).cuda() if args.cuda else Attention(args)
         for name, param in self.rnn.named_parameters():
             if 'bias' in name:
                 nn.init.constant(param, 0.0)
@@ -100,8 +102,7 @@ class Decoder(Module):
         target = target.unsqueeze(0)
         embed_target = self.embed(target)
         decoder_outputs, decoder_hiddens = self.rnn(embed_target, hidden)
-        atten_scores = self.attention(decoder_outputs,
-                                      encoder_outputs, source_lengths)
+        atten_scores = self.attention(decoder_outputs, encoder_outputs, source_lengths)
         context = atten_scores.bmm(encoder_outputs.transpose(0,1))
         concat = torch.cat([context, decoder_outputs.transpose(0,1)], -1)
         atten_outputs = F.tanh(self.output(concat))
@@ -109,8 +110,9 @@ class Decoder(Module):
         predictions = predictions.squeeze(1)
         return predictions, decoder_hiddens, atten_scores
 
-train_data = OpenSub(args)
-test_data = OpenSub(args, "../Data/t_given_s_test.txt")
+print("start data loading: train data at {}, test data at {}".format(args.train_path, args.test_path))
+train_data = OpenSub(args, args.train_path)
+test_data = OpenSub(args, args.test_path)
 PAD = train_data.PAD
 collate = lambda x:pad_batch(x, PAD)
 train_loader = torch.utils.data.DataLoader(train_data,
@@ -121,7 +123,7 @@ test_loader = torch.utils.data.DataLoader(test_data,
                                           batch_size=1000,
                                           shuffle=True, collate_fn=collate,
                                           num_workers=args.num_workers)
-
+print("finish data loading.")
 encoder = Encoder(args).cuda() if args.cuda else Encoder(args)
 decoder = Decoder(args).cuda() if args.cuda else Decoder(args)
 
@@ -144,42 +146,47 @@ def train(epoch):
         max_target_len = max(target_lens)
         decoder_hidden = encoder_last_hidden
         target_slice = Variable(torch.zeros(args.batch_size).fill_(train_data.SOS).long())
-        if args.cuda : target_slice = target_slcie.cuda()
+        if args.cuda : target_slice = target_slice.cuda()
         # preallocate
-        decoder_outputs = Variable(torch.zeros(max_target_len, args.batch_size, args.vocab_size+4)) # preallocate
-        if args.cuda : decoder_outputs = decoder_outpus.cuda()
-        pred_seq = torch.zeros_like(target)
+        decoder_outputs = Variable(torch.zeros(args.global_max_target_len, args.batch_size, args.vocab_size+4)) # preallocate
+        if args.cuda : decoder_outputs = decoder_outputs.cuda()
+        pred_seq = torch.zeros_like(target.data)
         for l in range(max_target_len):
             predictions, decoder_hidden, atten_scores = decoder(target_slice, encoder_outputs, source_lens, decoder_hidden)
             decoder_outputs[l] = predictions
-            pred_words = predictions.max(1)[1]
+            pred_words = predictions.data.max(1)[1]
             pred_seq[l] = pred_words
             target_slice = target[l] # use teacher forcing
             #TODO: check if we need to detach
             # detach hidden states
-            # for h in decoder_hidden:
-            #     h.detach_()
+            for h in decoder_hidden:
+                h.detach_()
         mask = Variable(length_to_mask(target_lens).float())
-        if args.cuda: mask.cuda()
+        if args.cuda: mask = mask.cuda()
 
-        loss = masked_cross_entropy_loss(decoder_outputs, target, mask)
+        print(decoder_outputs[:max_target_len].size())
+        print(target.size())
+        print(mask.size())
+        loss = masked_cross_entropy_loss(decoder_outputs[:max_target_len], target, mask)
         loss.backward()
 
         mask.transpose_(0,1)
-        correct = float(torch.eq(target.float() * mask, pred_seq.float() * mask).sum())
-        total = float(mask.sum())
+        correct = float(torch.eq(target.data.float() * mask.data, pred_seq.float() * mask.data).sum())
+        total = float(mask.data.sum())
         epoch_correct += correct
         epoch_total += total
         epoch_loss += loss
         accuracy = correct / total
 
-        if batch_id+1 % args.log_interval == 0:
+        if batch_id+1 % 1 == 0:
             step = epoch * len(train_loader) + batch_id
             writer.add_scalar('train/accuracy', accuracy, batch_id)
             writer.add_scalar('train/loss', loss, batch_id)
+            print("Epoch {}, batch {}: train accuracy: {}, loss: {}.".format(epoch, batch_id, accuracy, loss))
 
-        torch.clip_grad_norm(encoder.parameters, args.clip)
-        torch.clip_grad_norm(decoder.parameters, args.clip)
+
+        nn.utils.clip_grad_norm(encoder.parameters(), args.clip_thresh)
+        nn.utils.clip_grad_norm(decoder.parameters(), args.clip_thresh)
         encoder_optim.step()
         decoder_optim.step()
     print("Epoch {}: train accuracy {:.2%}, train averaged losss {}".format(epoch, epoch_correct/epoch_total, epoch_loss/len(train_loader)))
@@ -206,7 +213,7 @@ def test(epoch):
             pred_seq[l] = pred_words
             target_slice = pred_words # use own predictions
         mask = Variable(length_to_mask(target_lens).float(), volatile=True)
-        if args.cuda: mask.cuda()
+        if args.cuda: mask = mask.cuda()
         test_loss += masked_cross_entropy_loss(decoder_outputs, target, mask)
         mask.transpose_(0,1)
         test_correct += float(torch.eq(target.float() * mask, pred_seq.float() * mask).sum())
@@ -225,6 +232,7 @@ def evaluate():
     """
     raise NotImplementedError
 
+print("start training...")
 for ep in range(args.epoch):
     train(ep)
     if ep % args.eval_interval == 0:
