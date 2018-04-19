@@ -4,6 +4,21 @@ from torch.utils.data import Dataset
 from torch import Tensor
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
+class Vocab():
+    def __init__(self, path="../Data/movie_25000"):
+        self.D = {}
+        with open(path, "r") as f:
+            line_num = 1
+            for line in f.readlines():
+                self.D[line_num] = line.strip()
+                line_num += 1
+
+    def to_text(self, t):
+        sentence = ""
+        for n in t:
+            if n == 25002 or n == 25001: continue
+            sentence += self.D[n] + " "
+        return sentence
 
 class OpenSub(Dataset):
     def __init__(self, params, path=None):
