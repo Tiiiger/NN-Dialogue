@@ -177,7 +177,9 @@ def train(epoch):
             step = epoch * len(train_loader) + batch_id
             writer.add_scalar('train/accuracy', accuracy, batch_id)
             writer.add_scalar('train/loss', loss, batch_id)
-        #TODO: Gradient Clip
+
+        torch.clip_grad_norm(encoder.parameters, args.clip)
+        torch.clip_grad_norm(decoder.parameters, args.clip)
         encoder_optim.step()
         decoder_optim.step()
     print("Epoch {}: train accuracy {:.2%}, train averaged losss {}".format(epoch, epoch_correct/epoch_total, epoch_loss/len(train_loader)))
