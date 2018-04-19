@@ -85,7 +85,7 @@ class Decoder(Module):
                            bidirectional=False)
         self.output = nn.Linear(4*args.hidden_size, args.hidden_size)
         self.predict = nn.Linear(args.hidden_size, args.vocab_size+4)
-        self.attention = Attention(args)
+        self.attention = Attention(args).cuda if args.use_cuda else Attention(args)
         for name, param in self.rnn.named_parameters():
             if 'bias' in name:
                 nn.init.constant(param, 0.0)
@@ -131,6 +131,9 @@ decoder_optim = optim.SGD(decoder.parameters(), lr=args.lr)
 def train(epoch):
     encoder.train()
     decoder.train()
+    epoch_correct = 0
+    epoch_total = 0
+    epoch_loss = 0
     for batch_id, (source, source_lens, target, target_lens) in enumerate(train_loader):
         encoder_optim.zero_grad()
         decoder_optim.zero_grad()
@@ -141,8 +144,10 @@ def train(epoch):
         max_target_len = max(target_lens)
         decoder_hidden = encoder_last_hidden
         target_slice = Variable(torch.zeros(args.batch_size).fill_(train_data.SOS).long())
-        # preallocate 
+        if args.cuda : target_slice = target_slcie.cuda()
+        # preallocate
         decoder_outputs = Variable(torch.zeros(max_target_len, args.batch_size, args.vocab_size+4)) # preallocate
+        if args.cuda : decoder_outputs = decoder_outpus.cuda()
         pred_seq = torch.zeros_like(target)
         for l in range(max_target_len):
             predictions, decoder_hidden, atten_scores = decoder(target_slice, encoder_outputs, source_lens, decoder_hidden)
@@ -163,8 +168,10 @@ def train(epoch):
         mask.transpose_(0,1)
         correct = float(torch.eq(target.float() * mask, pred_seq.float() * mask).sum())
         total = float(mask.sum())
+        epoch_correct += correct
+        epoch_total += total
+        epoch_loss += loss
         accuracy = correct / total
-        print(accuracy)
 
         if batch_id+1 % args.log_interval == 0:
             step = epoch * len(train_loader) + batch_id
@@ -173,6 +180,7 @@ def train(epoch):
         #TODO: Gradient Clip
         encoder_optim.step()
         decoder_optim.step()
+    print("Epoch {}: train accuracy {:.2%}, train averaged losss {}".format(epoch, epoch_correct/epoch_total, epoch_loss/len(train_loader)))
 
 def test(epoch):
     encoder.eval()
@@ -202,12 +210,10 @@ def test(epoch):
         test_correct += float(torch.eq(target.float() * mask, pred_seq.float() * mask).sum())
         test_total += float(mask.sum())
 
-    test_loss /= len(test_loader)
     test_accuracy = test_correct / test_total
     writer.add_scalar('val/accuracy', accuracy, epoch)
     writer.add_scalar('val/loss', loss, epoch)
-
-    raise NotImplementedError
+    print("Epoch {}: test accuracy {:.2%}, test averaged loss {}".format(epoch, test_accuracy, test_loss))
 
 def evaluate():
     """
