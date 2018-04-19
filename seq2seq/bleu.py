@@ -1,13 +1,6 @@
 # Credits: https://github.com/MaximumEntropy/Seq2Seq-PyTorch/blob/master/evaluate.py
 import torch
 from collections import Counter
-def compute_bleu(predictions, reference):
-    """
-    predictions: TxB Tensor
-    reference: TxBxn Tensor, n is number of references
-    """
-    pass
-
 def ngram_precision(prediction, reference, n):
     """
     predictions: T list
