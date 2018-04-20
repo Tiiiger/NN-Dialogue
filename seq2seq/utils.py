@@ -57,7 +57,7 @@ def length_to_mask(lengths, longest=None):
     if longest == None:
         longest = max(lengths)
     batch_size = len(lengths)
-    index = torch.arange(0, longest).long()+1
+    index = torch.arange(longest).long()
     index = index.expand(batch_size, longest)
     lengths = LongTensor(lengths).unsqueeze(1).expand_as(index)
     mask = index < lengths
@@ -69,8 +69,7 @@ def masked_cross_entropy_loss(logits, target, mask):
     logits_flat = log_softmax(logits_flat)
     target_flat = target.view(-1, 1)
     losses_flat = -torch.gather(logits_flat, dim=1, index=target_flat)
-    length, batch_size = target.size()
-    losses = losses_flat.view(batch_size, length)
+    losses = losses_flat.view(*target.size())
     losses = losses * mask
     loss = losses.sum()/mask.sum()
     return loss
