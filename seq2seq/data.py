@@ -1,7 +1,7 @@
 import torch
 from torch.autograd import Variable
 from torch.utils.data import Dataset
-from torch import Tensor
+from torch import LongTensor, Tensor
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 class Vocab():
@@ -57,9 +57,14 @@ class OpenSub(Dataset):
         """
         with open(path, "r") as data_file:
             lines = data_file.readlines()
+            line_num = len(lines)
             source = []
             target = []
+            count = 0
             for l in lines:
+                percent = count / line_num
+                count += 1
+                if percent % 0.1 == 0: print("loading {:%} data".format(percent))
                 s, t = l.split('|')
                 s = self.__split_to_tensor(s)
                 t = self.__split_to_tensor(t)

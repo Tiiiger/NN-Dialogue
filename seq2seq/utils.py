@@ -8,7 +8,7 @@ def parse():
     parser = argparse.ArgumentParser(description='Pass Parameters for Seq2Seq Model')
     parser.add_argument('--epoch', dest='epoch', type=int, default=120,
                         help='total epoch of training')
-    parser.add_argument('--batch', dest='batch_size', type=int, default=4,
+    parser.add_argument('--batch', dest='batch_size', type=int, default=256,
                         help='batch size of training ')
     parser.add_argument('--num-workers', type=int, default=4,
                         help='number of workers ')

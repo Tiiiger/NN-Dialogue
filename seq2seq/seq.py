@@ -164,9 +164,6 @@ def train(epoch):
         mask = Variable(length_to_mask(target_lens).float())
         if args.cuda: mask = mask.cuda()
 
-        print(decoder_outputs[:max_target_len].size())
-        print(target.size())
-        print(mask.size())
         loss = masked_cross_entropy_loss(decoder_outputs[:max_target_len], target, mask)
         loss.backward()
 
@@ -178,11 +175,12 @@ def train(epoch):
         epoch_loss += loss
         accuracy = correct / total
 
-        if batch_id+1 % 1 == 0:
+        # if batch_id+1 % 1 == 0:
+        if (batch_id+1) % 1 == 0:
             step = epoch * len(train_loader) + batch_id
             writer.add_scalar('train/accuracy', accuracy, batch_id)
             writer.add_scalar('train/loss', loss, batch_id)
-            print("Epoch {}, batch {}: train accuracy: {}, loss: {}.".format(epoch, batch_id, accuracy, loss))
+            print("Epoch {}, batch {}: train accuracy: {}, loss: {}.".format(epoch, batch_id, accuracy, loss[0]))
 
 
         nn.utils.clip_grad_norm(encoder.parameters(), args.clip_thresh)
@@ -213,6 +211,7 @@ def test(epoch):
             pred_seq[l] = pred_words
             target_slice = pred_words # use own predictions
         mask = Variable(length_to_mask(target_lens).float(), volatile=True)
+        print(mask)
         if args.cuda: mask = mask.cuda()
         test_loss += masked_cross_entropy_loss(decoder_outputs, target, mask)
         mask.transpose_(0,1)
