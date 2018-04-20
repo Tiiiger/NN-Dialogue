@@ -64,15 +64,15 @@ def length_to_mask(lengths, longest=None):
     return mask
 
 def masked_cross_entropy_loss(logits, target, mask):
-    # credit: https://github.com/spro/practical-pytorch/blob/master/seq2seq-translation/masked_cross_entropy.py
+    # credits: https://gist.github.com/jihunchoi/f1434a77df9db1bb337417854b398df1
     logits_flat = logits.view(-1, logits.size(-1))
-    logit_flat = log_softmax(logits_flat)
+    logits_flat = log_softmax(logits_flat)
     target_flat = target.view(-1, 1)
     losses_flat = -torch.gather(logits_flat, dim=1, index=target_flat)
     length, batch_size = target.size()
     losses = losses_flat.view(batch_size, length)
     losses = losses * mask
-    loss = losses.mean()
+    loss = losses.sum()/mask.sum()
     return loss
 
 def get_bleu(predictions, target, length):
