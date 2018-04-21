@@ -10,6 +10,7 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from utils import parse, length_to_mask, masked_cross_entropy_loss
 from tensorboardX import SummaryWriter
 import os
+import sys
 from time import strftime, localtime
 
 args = parse()
@@ -117,18 +118,39 @@ PAD = train_data.PAD
 collate = lambda x:pad_batch(x, PAD)
 train_loader = torch.utils.data.DataLoader(train_data,
                                            batch_size=args.batch_size,
-                                           shuffle=True, collate_fn=collate,
+                                           shuffle=False, collate_fn=collate,
                                            num_workers=args.num_workers)
 test_loader = torch.utils.data.DataLoader(test_data,
                                           batch_size=64,
                                           shuffle=True, collate_fn=collate,
                                           num_workers=args.num_workers)
 print("finish data loading.")
+print("preparing directory {}".format(args.dir))
+os.makedir(args.dir, exist_ok=True)
+print("building model")
 encoder = Encoder(args).cuda() if args.cuda else Encoder(args)
 decoder = Decoder(args).cuda() if args.cuda else Decoder(args)
 
+
 encoder_optim = optim.SGD(encoder.parameters(), lr=args.lr)
 decoder_optim = optim.SGD(decoder.parameters(), lr=args.lr)
+if not args.resume:
+    with open(os.path.join(args.dir, 'command.sh'), 'w') as f:
+        f.write(" ".join(sys.argv))
+        f.write("\n")
+    start_batch = 0
+else:
+    print('resume training...')
+    checkpoint = torch.load(args.resume_path)
+    start_batch = checkpoint['batch']
+    encoder.load_state_dict(checkpoint['encoder_state'])
+    decoder.load_staet_dict(checkpoint['decoder_state'])
+    encoder_optim.load_state_dict(checkpoint['encoder_opt_state'])
+    decoder_optim.load_state_dict(checkpoint['decoder_opt_state'])
+
+if start_batch > 0:
+    for i in range(start_batch):
+        next(train_loader.sample_iter)
 
 def train():
     encoder.train()
@@ -173,6 +195,16 @@ def train():
             writer.add_scalar('train/accuracy', accuracy, batch_id)
             writer.add_scalar('train/loss', loss, batch_id)
             print("Batch {}: train accuracy: {}, loss: {}.".format(batch_id, accuracy, loss))
+
+        if batch_id % args.save_interval == 0:
+            save_checkpoint(
+                    args.dir,
+                    batch_id,
+                    encoder_state = encoder.state_dict(),
+                    decoder_state = decoder_state_dict(),
+                    encoder_opt_state = encoder_optim.state_dict(),
+                    decoder_opt_state = decoder_optim.state_dict()
+                    )
 
 
         nn.utils.clip_grad_norm(encoder.parameters(), args.clip_thresh)
