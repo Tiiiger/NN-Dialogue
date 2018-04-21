@@ -6,7 +6,7 @@ from torch.autograd import Variable
 
 def parse():
     parser = argparse.ArgumentParser(description='Pass Parameters for Seq2Seq Model')
-    parser.add_argument('--batch', dest='batch_size', type=int, default=4,
+    parser.add_argument('--batch', dest='batch_size', type=int, default=64,
                         help='batch size of training ')
     parser.add_argument('--num-workers', type=int, default=4,
                         help='number of workers ')
@@ -53,22 +53,21 @@ def length_to_mask(lengths, longest=None):
     if longest == None:
         longest = max(lengths)
     batch_size = len(lengths)
-    index = torch.arange(0, longest).long()
+    index = torch.arange(longest).long()
     index = index.expand(batch_size, longest)
     lengths = LongTensor(lengths).unsqueeze(1).expand_as(index)
     mask = index < lengths
     return mask
 
 def masked_cross_entropy_loss(logits, target, mask):
-    # credit: https://github.com/spro/practical-pytorch/blob/master/seq2seq-translation/masked_cross_entropy.py
+    # credits: https://gist.github.com/jihunchoi/f1434a77df9db1bb337417854b398df1
     logits_flat = logits.view(-1, logits.size(-1))
-    log_probs_flat = log_softmax(logits_flat)
+    logits_flat = log_softmax(logits_flat)
     target_flat = target.view(-1, 1)
-    losses_flat = -torch.gather(log_probs_flat, dim=1, index=target_flat)
-    length, batch_size = target.size()
-    losses = losses_flat.view(batch_size, length)
+    losses_flat = -torch.gather(logits_flat, dim=1, index=target_flat)
+    losses = losses_flat.view(*target.size())
     losses = losses * mask
-    loss = losses.mean()
+    loss = losses.sum()/mask.sum()
     return loss
 
 def get_bleu(predictions, target, length):
