@@ -44,6 +44,10 @@ def parse():
                     help='name of current model')
     parser.add_argument('--log-interval', type=int, default=100, metavar='N',
                     help='intervals of writing tensorboard')
+    parser.add_argument('--resume', action='store_true', default=False,
+                    help='resume training from check_point')
+    parser.add_argument('--resume_path', type=str, default="",
+                    help='path to checkpoint')
     parser.add_argument('--eval-interval', type=int, default=1, metavar='N',
                     help='intervals of validating')
     parser.add_argument('--global-max-target-len', type=int, default=100, metavar='N',
@@ -74,5 +78,10 @@ def masked_cross_entropy_loss(logits, target, mask):
     loss = losses.sum()/mask.sum()
     return loss
 
-def get_bleu(predictions, target, length):
-    raise NotImplementedError
+def save_checkpoint(path, batch_id, **kwargs):
+    state = {'batch_id':batch_id}
+    state.update(kwargs)
+    filepath = os.path.join(path, 'checkpoint-{}'.format(batch_id))
+    torch.save(state, filepath)
+
+
