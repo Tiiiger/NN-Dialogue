@@ -7,7 +7,7 @@ from torch import optim
 import torch.nn.functional as F
 from data import  OpenSub, pad_batch
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
-from utils import parse, length_to_mask, masked_cross_entropy_loss
+from utils import parse, length_to_mask, masked_cross_entropy_loss, save_checkpoint
 from tensorboardX import SummaryWriter
 import os
 import sys
@@ -124,9 +124,11 @@ test_loader = torch.utils.data.DataLoader(test_data,
                                           batch_size=64,
                                           shuffle=True, collate_fn=collate,
                                           num_workers=args.num_workers)
+train_loader = iter(train_loader)
+
 print("finish data loading.")
 print("preparing directory {}".format(args.dir))
-os.makedir(args.dir, exist_ok=True)
+os.makedirs(args.dir, exist_ok=True)
 print("building model")
 encoder = Encoder(args).cuda() if args.cuda else Encoder(args)
 decoder = Decoder(args).cuda() if args.cuda else Decoder(args)
@@ -134,32 +136,35 @@ decoder = Decoder(args).cuda() if args.cuda else Decoder(args)
 
 encoder_optim = optim.SGD(encoder.parameters(), lr=args.lr)
 decoder_optim = optim.SGD(decoder.parameters(), lr=args.lr)
-if not args.resume:
+if args.resume is None:
     with open(os.path.join(args.dir, 'command.sh'), 'w') as f:
         f.write(" ".join(sys.argv))
         f.write("\n")
     start_batch = 0
 else:
     print('resume training...')
-    checkpoint = torch.load(args.resume_path)
-    start_batch = checkpoint['batch']
+    checkpoint = torch.load(os.path.join(args.dir, args.resume))
+    start_batch = checkpoint['batch_id']
     encoder.load_state_dict(checkpoint['encoder_state'])
-    decoder.load_staet_dict(checkpoint['decoder_state'])
+    decoder.load_state_dict(checkpoint['decoder_state'])
     encoder_optim.load_state_dict(checkpoint['encoder_opt_state'])
     decoder_optim.load_state_dict(checkpoint['decoder_opt_state'])
 
 if start_batch > 0:
     for i in range(start_batch):
-        next(train_loader.sample_iter)
+        next(train_loader)
 
 def train():
     encoder.train()
     decoder.train()
-    for batch_id, (source, source_lens, target, target_lens) in enumerate(train_loader):
+    for batch_id in range(len(train_loader)-start_batch):
+        source, source_lens, target, target_lens = next(train_loader)
+        batch_id += start_batch
         encoder_optim.zero_grad()
         decoder_optim.zero_grad()
         if args.cuda: source, target = source.cuda(), target.cuda()
         source, target = Variable(source), Variable(target)
+        batch_size = source.size()[1]
         encoder_outputs, encoder_last_hidden = encoder(source, source_lens, None)
         max_target_len = max(target_lens)
         decoder_hidden = encoder_last_hidden
@@ -201,7 +206,7 @@ def train():
                     args.dir,
                     batch_id,
                     encoder_state = encoder.state_dict(),
-                    decoder_state = decoder_state_dict(),
+                    decoder_state = decoder.state_dict(),
                     encoder_opt_state = encoder_optim.state_dict(),
                     decoder_opt_state = decoder_optim.state_dict()
                     )

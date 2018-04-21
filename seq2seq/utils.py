@@ -1,5 +1,6 @@
 import argparse
 import torch
+import os
 from torch.nn.functional import softmax, log_softmax
 from torch import LongTensor,Tensor
 from torch.autograd import Variable
@@ -8,6 +9,8 @@ def parse():
     parser = argparse.ArgumentParser(description='Pass Parameters for Seq2Seq Model')
     parser.add_argument('--batch', dest='batch_size', type=int, default=64,
                         help='batch size of training ')
+    parser.add_argument('--dir', dest='dir', type=str, default="checkpoints",
+                        help='path to checkpoint directory ')
     parser.add_argument('--num-workers', type=int, default=4,
                         help='number of workers ')
     parser.add_argument('--pretrain', dest='pretrain', action="store_const",
@@ -40,9 +43,9 @@ def parse():
                     help='name of current model')
     parser.add_argument('--log-interval', type=int, default=100, metavar='N',
                     help='intervals of writing tensorboard')
-    parser.add_argument('--resume', action='store_true', default=False,
-                    help='resume training from check_point')
-    parser.add_argument('--resume_path', type=str, default="",
+    parser.add_argument('--save-interval', type=int, default=1000, metavar='N',
+                    help='intervals of writing tensorboard')
+    parser.add_argument('--resume', type=str, default=None,
                     help='path to checkpoint')
     parser.add_argument('--eval-interval', type=int, default=1, metavar='N',
                     help='intervals of validating')
@@ -66,7 +69,7 @@ def length_to_mask(lengths, longest=None):
 def masked_cross_entropy_loss(logits, target, mask):
     # credits: https://gist.github.com/jihunchoi/f1434a77df9db1bb337417854b398df1
     logits_flat = logits.view(-1, logits.size(-1))
-    logits_flat = log_softmax(logits_flat)
+    logits_flat = log_softmax(logits_flat, 0)
     target_flat = target.view(-1, 1)
     losses_flat = -torch.gather(logits_flat, dim=1, index=target_flat)
     losses = losses_flat.view(*target.size())
