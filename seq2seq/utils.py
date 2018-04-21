@@ -6,8 +6,6 @@ from torch.autograd import Variable
 
 def parse():
     parser = argparse.ArgumentParser(description='Pass Parameters for Seq2Seq Model')
-    parser.add_argument('--epoch', dest='epoch', type=int, default=120,
-                        help='total epoch of training')
     parser.add_argument('--batch', dest='batch_size', type=int, default=4,
                         help='batch size of training ')
     parser.add_argument('--num-workers', type=int, default=4,
@@ -38,15 +36,13 @@ def parse():
                     help='random seed (default: 1)')
     parser.add_argument('--lr', type=float, default=0.1, metavar='LR',
                     help='learning rate (default: 0.1)')
-    parser.add_argument('--epochs', type=int, default=10, metavar='N',
-                    help='number of epochs to train (default: 10)')
     parser.add_argument('--log-name', type=str, default="seq", metavar='S',
                     help='name of current model')
     parser.add_argument('--log-interval', type=int, default=100, metavar='N',
                     help='intervals of writing tensorboard')
     parser.add_argument('--eval-interval', type=int, default=1, metavar='N',
                     help='intervals of validating')
-    parser.add_argument('--global-max-target-len', type=int, default=100, metavar='N',
+    parser.add_argument('--global-max-target-len', type=int, default=20, metavar='N',
                     help='intervals of validating')
     # parser.add_argument('--testpath', dest="test_path", type=str, default="../Data/t_given_s_train.txt")
     args = parser.parse_args()

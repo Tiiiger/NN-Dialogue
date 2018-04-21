@@ -130,12 +130,9 @@ decoder = Decoder(args).cuda() if args.cuda else Decoder(args)
 encoder_optim = optim.SGD(encoder.parameters(), lr=args.lr)
 decoder_optim = optim.SGD(decoder.parameters(), lr=args.lr)
 
-def train(epoch):
+def train():
     encoder.train()
     decoder.train()
-    epoch_correct = 0
-    epoch_total = 0
-    epoch_loss = 0
     for batch_id, (source, source_lens, target, target_lens) in enumerate(train_loader):
         encoder_optim.zero_grad()
         decoder_optim.zero_grad()
@@ -173,23 +170,18 @@ def train(epoch):
         mask.transpose_(0,1)
         correct = float(torch.eq(target.data.float() * mask.data, pred_seq.float() * mask.data).sum())
         total = float(mask.data.sum())
-        epoch_correct += correct
-        epoch_total += total
-        epoch_loss += loss
         accuracy = correct / total
 
-        if batch_id+1 % 1 == 0:
-            step = epoch * len(train_loader) + batch_id
+        if batch_id+1 % args.log_interval == 0:
             writer.add_scalar('train/accuracy', accuracy, batch_id)
             writer.add_scalar('train/loss', loss, batch_id)
-            print("Epoch {}, batch {}: train accuracy: {}, loss: {}.".format(epoch, batch_id, accuracy, loss))
+            print("Batch {}: train accuracy: {}, loss: {}.".format(batch_id, accuracy, loss))
 
 
         nn.utils.clip_grad_norm(encoder.parameters(), args.clip_thresh)
         nn.utils.clip_grad_norm(decoder.parameters(), args.clip_thresh)
         encoder_optim.step()
         decoder_optim.step()
-    print("Epoch {}: train accuracy {:.2%}, train averaged losss {}".format(epoch, epoch_correct/epoch_total, epoch_loss/len(train_loader)))
 
 def test(epoch):
     encoder.eval()
@@ -233,7 +225,4 @@ def evaluate():
     raise NotImplementedError
 
 print("start training...")
-for ep in range(args.epoch):
-    train(ep)
-    if ep % args.eval_interval == 0:
-        test(ep)
+train()
