@@ -17,10 +17,10 @@ def parse():
                         const=True, default=False, help='use the pretrain model \
                         to run')
     parser.add_argument('--train-path', dest="train_path", type=str,
-                        default="../data/processed/t_given_s_dialogue_length2_3_train.txt",
+                        default="../data/train/2020_train",
                         help="path to train set, default :%(default)s")
     parser.add_argument('--test-path', dest="test_path", type=str,
-                        default="../data/processed/2020/dialog2020_test",
+                        default="../data/dev/2020_dev",
                         help="path to test set, default :%(default)s")
     parser.add_argument('--vocab-path', dest="vocab_path", type=str,
                         default="../data/movie_25000",
@@ -46,15 +46,21 @@ def parse():
                     help='train source given target')
     parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
+    parser.add_argument('--dropout', type=float, default=0.2, metavar='LR',
+                    help='dropout probability (default: 0.2)')
+    parser.add_argument('--momentum', type=float, default=0., metavar='LR',
+                    help='momentum')
     parser.add_argument('--lr', type=float, default=0.1, metavar='LR',
                     help='learning rate (default: 0.1)')
+    parser.add_argument('--lr-schedule', type=str, default="const", metavar='LR',
+                    help='"multi" or "const"')
     parser.add_argument('--log-name', type=str, default="seq", metavar='S',
                     help='name of current model')
-    parser.add_argument('--log-interval', type=int, default=100, metavar='N',
+    parser.add_argument('--log-interval', type=int, default=50, metavar='N',
                     help="intervals of writing tensorboard, default :%(default)s")
-    parser.add_argument('--save-interval', type=int, default=10000, metavar='N',
+    parser.add_argument('--save-interval', type=int, default=1000, metavar='N',
                     help="intervals of saving checkpoints, default :%(default)s")
-    parser.add_argument('--eval-interval', type=int, default=10000, metavar='N',
+    parser.add_argument('--eval-interval', type=int, default=250, metavar='N',
                     help="intervals of validating, default :%(default)s")
     parser.add_argument('--resume', type=str, default=None,
                     help='path to checkpoint')

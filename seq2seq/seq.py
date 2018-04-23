@@ -27,11 +27,13 @@ class Encoder(Module):
 
     def __init__(self, args):
         super(Encoder, self).__init__()
+        self.dropout_prob = args.dropout
         self.embedding = nn.Embedding(args.vocab_size+4, args.embed_size)
         # Only accept 4 layers bi-directional LSTM right now
         self.rnn = nn.LSTM(input_size=args.embed_size,
                                   hidden_size=args.hidden_size,
                                   num_layers=args.num_layers,
+                                  dropout = self.dropout_prob,
                                   bidirectional=True)
         for name, param in self.rnn.named_parameters():
             if 'bias' in name:
@@ -82,10 +84,12 @@ class Decoder(Module):
 
     def __init__(self, args):
         super(Decoder, self).__init__()
+        self.dropout_prob = args.dropout
         self.embed = nn.Embedding(args.vocab_size+4, args.embed_size)
         self.rnn = nn.LSTM(input_size = args.embed_size,
                            hidden_size = 2 * args.hidden_size,
                            num_layers = args.num_layers,
+                           dropout = self.dropout_prob,
                            bidirectional=False)
         self.output = nn.Linear(4*args.hidden_size, args.hidden_size)
         self.predict = nn.Linear(args.hidden_size, args.vocab_size+4)
@@ -123,8 +127,8 @@ train_loader = torch.utils.data.DataLoader(train_data,
                                            shuffle=False, collate_fn=collate,
                                            num_workers=args.num_workers)
 test_loader = torch.utils.data.DataLoader(test_data,
-                                          batch_size=100,
-                                          shuffle=False, collate_fn=collate,
+                                          batch_size=200,
+                                          shuffle=True, collate_fn=collate,
                                           num_workers=args.num_workers)
 train_loader = iter(train_loader)
 
@@ -136,8 +140,12 @@ encoder = Encoder(args).cuda() if args.cuda else Encoder(args)
 decoder = Decoder(args).cuda() if args.cuda else Decoder(args)
 
 
-encoder_optim = optim.SGD(encoder.parameters(), lr=args.lr)
-decoder_optim = optim.SGD(decoder.parameters(), lr=args.lr)
+encoder_optim = optim.SGD(encoder.parameters(), lr=args.lr, momentum=args.momentum)
+decoder_optim = optim.SGD(decoder.parameters(), lr=args.lr, momentum=args.momentum)
+if args.lr_schedule == "multi":
+    encoder_scheduler = optim.lr_scheduler.ReduceLROnPlateau(encoder_optim, 'min', factor=0.5, patience=2, verbose=True, min_lr=0.1)
+    decoder_scheduler = optim.lr_scheduler.ReduceLROnPlateau(decoder_optim, 'min', factor=0.5, patience=2, verbose=True, min_lr=0.1)
+
 if args.resume is None:
     with open(os.path.join(args.dir, 'command.sh'), 'w') as f:
         f.write(" ".join(sys.argv))
@@ -198,10 +206,12 @@ def train(batch_id, source, source_lens, target, target_lens):
 
     time_now = time()
     time_diff = time_now - time_start
+    current_lr = encoder_optim.param_groups[0]['lr']
     if batch_id % args.log_interval == 0:
         writer.add_scalar('train/accuracy', accuracy, batch_id)
         writer.add_scalar('train/loss', loss, batch_id)
-        print("Batch {}: train accuracy: {:.2%}, loss: {}, time use: {:.2}s.".format(batch_id, accuracy, loss.data[0], time_diff))
+        writer.add_scalar('train/lr', current_lr, batch_id)
+        print("Batch {}: train accuracy: {:.2%}, loss: {}, lr: {}, time use: {:.2}s.".format(batch_id, accuracy, loss.data[0], current_lr, time_diff))
 
     if batch_id % args.save_interval == 0:
         save_checkpoint(
@@ -265,27 +275,35 @@ def test(epoch):
     test_accuracy = test_correct / test_total
     writer.add_scalar('val/accuracy', test_accuracy, epoch)
     writer.add_scalar('val/loss', test_loss/len(test_loader), epoch)
-    print("test # {}: test accuracy {:.2%}, test averaged loss {}".format(epoch, test_accuracy, test_loss/len(test_loader)))
+    avg_test_loss = test_loss/len(test_loader)
+    print("test # {}: test accuracy {:.2%}, test averaged loss {}".format(epoch, test_accuracy, avg_test_loss))
+    return avg_test_loss
 
 print("start training...\ntotal batch #: {}".format(len(train_loader)))
+print("logging per {} batches".format(args.log_interval))
+print("evaluating per {} batches".format(args.eval_interval))
+print("saving per {} batches".format(args.save_interval))
 test_iter = 1
 for batch_id in range(len(train_loader)-start_batch):
     encoder.train()
     decoder.train()
     source, source_lens, target, target_lens = next(train_loader)
     train(batch_id,source, source_lens, target, target_lens)
-    if batch_id+1 % args.eval_interval == 0:
+    if (batch_id+1) % args.eval_interval == 0:
         encoder.eval()
         decoder.eval()
-        test(test_iter)
+        val_loss = test(test_iter)
         test_iter += 1
+        if args.lr_schedule == "multi":
+            encoder_scheduler.step(val_loss)
+            decoder_scheduler.step(val_loss)
 
 
 
 def evaluate():
     """
     TODO:
-    1. get BLEU score
+ 1. get BLEU score
     2. save attention
     """
     raise NotImplementedError
