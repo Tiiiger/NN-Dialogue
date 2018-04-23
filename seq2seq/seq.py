@@ -5,13 +5,13 @@ from torch.nn import Module
 from torch.autograd import Variable
 from torch import optim
 import torch.nn.functional as F
-from data import  OpenSub, pad_batch
+from data import  Vocab, OpenSub, pad_batch
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from utils import parse, length_to_mask, masked_cross_entropy_loss, save_checkpoint
 from tensorboardX import SummaryWriter
 import os
 import sys
-from time import strftime, localtime
+from time import strftime, localtime, time
 
 args = parse()
 torch.manual_seed(args.seed)
@@ -19,9 +19,10 @@ if args.cuda:
     torch.cuda.manual_seed(args.seed)
 
 time_stamp = strftime("%y%m%d-%H:%M", localtime())
-writer = SummaryWriter(log_dir=os.path.join("..", "runs", "{}-{}".format(args.log_name, time_stamp)))
+writer = SummaryWriter(log_dir=os.path.join(".", "runs", "{}-{}".format(args.log_name, time_stamp)))
 cuda_prompt = "you are using cuda." if args.cuda else "you are not using cuda."
 print("start model building, "+cuda_prompt)
+
 class Encoder(Module):
 
     def __init__(self, args):
@@ -114,6 +115,7 @@ class Decoder(Module):
 print("start data loading: train data at {}, test data at {}".format(args.train_path, args.test_path))
 train_data = OpenSub(args, args.train_path)
 test_data = OpenSub(args, args.test_path)
+vocab = Vocab(args.vocab_path)
 PAD = train_data.PAD
 collate = lambda x:pad_batch(x, PAD)
 train_loader = torch.utils.data.DataLoader(train_data,
@@ -121,8 +123,8 @@ train_loader = torch.utils.data.DataLoader(train_data,
                                            shuffle=False, collate_fn=collate,
                                            num_workers=args.num_workers)
 test_loader = torch.utils.data.DataLoader(test_data,
-                                          batch_size=64,
-                                          shuffle=True, collate_fn=collate,
+                                          batch_size=100,
+                                          shuffle=False, collate_fn=collate,
                                           num_workers=args.num_workers)
 train_loader = iter(train_loader)
 
@@ -154,68 +156,68 @@ if start_batch > 0:
     for i in range(start_batch):
         next(train_loader)
 
-def train():
-    encoder.train()
-    decoder.train()
-    for batch_id in range(len(train_loader)-start_batch):
-        source, source_lens, target, target_lens = next(train_loader)
-        batch_id += start_batch
-        encoder_optim.zero_grad()
-        decoder_optim.zero_grad()
-        if args.cuda: source, target = source.cuda(), target.cuda()
-        source, target = Variable(source), Variable(target)
-        batch_size = source.size()[1]
-        encoder_outputs, encoder_last_hidden = encoder(source, source_lens, None)
-        max_target_len = max(target_lens)
-        decoder_hidden = encoder_last_hidden
-        target_slice = Variable(torch.zeros(batch_size).fill_(train_data.SOS).long())
-        decoder_outputs = Variable(torch.zeros(args.global_max_target_len, batch_size, args.vocab_size+4)) # preallocate
-        pred_seq = torch.zeros_like(target.data)
-        if args.cuda:
-            source, target = source.cuda(), target.cuda()
-            target_slice = target_slice.cuda()
-            decoder_outputs = decoder_outputs.cuda()
-        for l in range(max_target_len):
-            predictions, decoder_hidden, atten_scores = decoder(target_slice, encoder_outputs, source_lens, decoder_hidden)
-            decoder_outputs[l] = predictions
-            pred_words = predictions.data.max(1)[1]
-            pred_seq[l] = pred_words
-            target_slice = target[l] # use teacher forcing
-            #TODO: check if we need to detach
-            # detach hidden states
-            for h in decoder_hidden:
-                h.detach_()
-        mask = Variable(length_to_mask(target_lens)).transpose(0,1).float()
-        if args.cuda: mask = mask.cuda()
+def train(batch_id, source, source_lens, target, target_lens):
+    time_start = time()
+    batch_id += start_batch
+    encoder_optim.zero_grad()
+    decoder_optim.zero_grad()
+    if args.cuda: source, target = source.cuda(), target.cuda()
+    source, target = Variable(source), Variable(target)
+    batch_size = source.size()[1]
+    encoder_outputs, encoder_last_hidden = encoder(source, source_lens, None)
+    max_target_len = max(target_lens)
+    decoder_hidden = encoder_last_hidden
+    target_slice = Variable(torch.zeros(batch_size).fill_(train_data.SOS).long())
+    decoder_outputs = Variable(torch.zeros(args.global_max_target_len, batch_size, args.vocab_size+4)) # preallocate
+    pred_seq = torch.zeros_like(target.data)
+    if args.cuda:
+        source, target = source.cuda(), target.cuda()
+        target_slice = target_slice.cuda()
+        decoder_outputs = decoder_outputs.cuda()
+    for l in range(max_target_len):
+        predictions, decoder_hidden, atten_scores = decoder(target_slice, encoder_outputs, source_lens, decoder_hidden)
+        decoder_outputs[l] = predictions
+        pred_words = predictions.data.max(1)[1]
+        pred_seq[l] = pred_words
+        target_slice = target[l] # use teacher forcing
+        #TODO: check if we need to detach
+        # detach hidden states
+        for h in decoder_hidden:
+            h.detach_()
+    mask = Variable(length_to_mask(target_lens)).transpose(0,1).float()
+    if args.cuda: mask = mask.cuda()
 
-        loss = masked_cross_entropy_loss(decoder_outputs[:max_target_len], target, mask)
-        loss.backward()
+    loss = masked_cross_entropy_loss(decoder_outputs[:max_target_len], target, mask)
+    loss.backward()
 
-        mask.transpose_(0,1)
-        correct = float(torch.eq(target.data.float() * mask.data, pred_seq.float() * mask.data).sum())
-        total = float(mask.data.sum())
-        accuracy = correct / total
+    mask.transpose_(0,1)
+    correct = torch.eq(target.data.float() , pred_seq.float()) * mask.data.byte()
+    correct = correct.float().sum()
+    total = mask.data.float().sum()
+    accuracy = correct / total
 
-        if batch_id+1 % args.log_interval == 0:
-            writer.add_scalar('train/accuracy', accuracy, batch_id)
-            writer.add_scalar('train/loss', loss, batch_id)
-            print("Batch {}: train accuracy: {}, loss: {}.".format(batch_id, accuracy, loss))
+    time_now = time()
+    time_diff = time_now - time_start
+    if batch_id % args.log_interval == 0:
+        writer.add_scalar('train/accuracy', accuracy, batch_id)
+        writer.add_scalar('train/loss', loss, batch_id)
+        print("Batch {}: train accuracy: {:.2%}, loss: {}, time use: {:.2}s.".format(batch_id, accuracy, loss.data[0], time_diff))
 
-        if batch_id % args.save_interval == 0:
-            save_checkpoint(
-                    args.dir,
-                    batch_id,
-                    encoder_state = encoder.state_dict(),
-                    decoder_state = decoder.state_dict(),
-                    encoder_opt_state = encoder_optim.state_dict(),
-                    decoder_opt_state = decoder_optim.state_dict()
-                    )
+    if batch_id % args.save_interval == 0:
+        save_checkpoint(
+                args.dir,
+                batch_id,
+                encoder_state = encoder.state_dict(),
+                decoder_state = decoder.state_dict(),
+                encoder_opt_state = encoder_optim.state_dict(),
+                decoder_opt_state = decoder_optim.state_dict()
+                )
 
 
-        nn.utils.clip_grad_norm(encoder.parameters(), args.clip_thresh)
-        nn.utils.clip_grad_norm(decoder.parameters(), args.clip_thresh)
-        encoder_optim.step()
-        decoder_optim.step()
+    nn.utils.clip_grad_norm(encoder.parameters(), args.clip_thresh)
+    nn.utils.clip_grad_norm(decoder.parameters(), args.clip_thresh)
+    encoder_optim.step()
+    decoder_optim.step()
 
 def test(epoch):
     encoder.eval()
@@ -255,16 +257,30 @@ def test(epoch):
         test_correct += correct
         test_total += total
         test_loss += loss.data[0]
-        # if batch_id == 0:
-        #     print("target sequence is:")
-        #     print(target.data[:, 0].unsqueeze(1).transpose(0,1))
-        #     print("predict sequence is:")
-        #     print(pred_seq[:, 0].unsqueeze(1).transpose(0,1))
+        if batch_id == 0:
+            print("Given source sequence:\n {}".format(vocab.to_text(source.data[:source_lens[0], 0])))
+            print("target sequence is:\n {}".format(vocab.to_text(target.data[:target_lens[0], 0])))
+            print("generated sequence is:\n {}".format(vocab.to_text(pred_seq[:, 0])))
 
     test_accuracy = test_correct / test_total
     writer.add_scalar('val/accuracy', test_accuracy, epoch)
     writer.add_scalar('val/loss', test_loss/len(test_loader), epoch)
-    print("Epoch {}: test accuracy {:.2%}, test averaged loss {}".format(epoch, test_accuracy, test_loss/len(test_loader)))
+    print("test # {}: test accuracy {:.2%}, test averaged loss {}".format(epoch, test_accuracy, test_loss/len(test_loader)))
+
+print("start training...\ntotal batch #: {}".format(len(train_loader)))
+test_iter = 1
+for batch_id in range(len(train_loader)-start_batch):
+    encoder.train()
+    decoder.train()
+    source, source_lens, target, target_lens = next(train_loader)
+    train(batch_id,source, source_lens, target, target_lens)
+    if batch_id+1 % args.eval_interval == 0:
+        encoder.eval()
+        decoder.eval()
+        test(test_iter)
+        test_iter += 1
+
+
 
 def evaluate():
     """
@@ -273,6 +289,3 @@ def evaluate():
     2. save attention
     """
     raise NotImplementedError
-
-print("start training...")
-train()

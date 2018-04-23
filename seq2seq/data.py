@@ -3,21 +3,27 @@ from torch.autograd import Variable
 from torch.utils.data import Dataset
 from torch import LongTensor, Tensor
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+import pandas as pd
+import numpy as np
 
 class Vocab():
-    def __init__(self, path="../Data/movie_25000"):
+    def __init__(self, path):
         self.D = {}
-        with open(path, "r") as f:
-            line_num = 1
-            for line in f.readlines():
-                self.D[line_num] = line.strip()
-                line_num += 1
+        self.EOS = 25001
+        self.SOS = 25002
+        self.dict = [s.strip() for s in open(path).readlines()]
 
     def to_text(self, t):
         sentence = ""
         for n in t:
-            if n == 25002 or n == 25001: continue
-            sentence += self.D[n] + " "
+            if n == 25001:
+                sentence += "<end>"
+            elif n == 25002:
+                sentence += "<start>"
+            elif n == 25003:
+                sentence += "<pad>"
+            else:
+                sentence += self.dict[n-1] + " "
         return sentence
 
 class OpenSub(Dataset):
@@ -29,8 +35,8 @@ class OpenSub(Dataset):
         self.SOS = params.vocab_size+2
         self.PAD = params.vocab_size+3
         self.vocab_size = params.vocab_size+3
-        self.source, self.target = self.__read_data(path)
-        self.length = len(self.source)
+        self.__read_data(path, params.reverse)
+        self.length = self.source.size()[0]
 
     def __len__(self):
         return self.length
@@ -41,7 +47,7 @@ class OpenSub(Dataset):
         arr.append(self.EOS)
         return Tensor(arr)
 
-    def __read_data(self, path):
+    def __read_data(self, path, reverse):
         """
         Read the data into this data loader. The source sequences if reverse if
         [params.reverse].
@@ -55,23 +61,16 @@ class OpenSub(Dataset):
                     representing a target sequence. tensors may have different
                     length.
         """
-        with open(path, "r") as data_file:
-            lines = data_file.readlines()
-            line_num = len(lines)
-            source = []
-            target = []
-            count = 0
-            for l in lines:
-                percent = count / line_num
-                count += 1
-                if percent % 0.1 == 0: print("loading {:%} data".format(percent))
-                s, t = l.split('|')
-                s = self.__split_to_tensor(s)
-                t = self.__split_to_tensor(t)
-                source.append(s)
-                target.append(t)
-            return source, target
-
+        source_path = path+ "_source.txt"
+        target_path = path+ "_target.txt"
+        if reverse: source_path, target_path = target_path, source_path
+        cols = range(20)
+        source_frame = pd.read_csv(source_path, delimiter=" ", names=cols)
+        self.source_lens = (20-source_frame.isnull().sum(axis=1).as_matrix()).tolist()
+        self.source = torch.from_numpy(source_frame.fillna(self.PAD).as_matrix()).long()
+        target_frame = pd.read_csv(target_path, delimiter=" ", names=cols)
+        self.target_lens = (20-target_frame.isnull().sum(axis=1)).tolist()
+        self.target = torch.from_numpy(target_frame.fillna(self.PAD).as_matrix()).long()
     def __getitem__(self, idx):
         """
         Get a batch of source and target sequences.
@@ -85,7 +84,7 @@ class OpenSub(Dataset):
         target_lengths: A [1*batch_size] tensor; lengths[i] is the length of the
                        batch[i].
         """
-        return self.source[idx], self.target[idx]
+        return self.source[idx], self.source_lens[idx], self.target[idx], self.target_lens[idx]
 
 
 def pad_batch(batch, PAD):
@@ -93,30 +92,26 @@ def pad_batch(batch, PAD):
      Pad a batch to have same length for all sequences.
      Args:
          batch: A python list of [batch_size] tuple of tensors representing
-                source and target sequences
+                source, source lengths, target, and target lengths sequences
      Returns:
-         pad_source: A B*T Variable, B is [batch_size], T is the maximum
+         pad_source: A T*B Variable, B is [batch_size], T is the maximum
                      length of source sequences in the batch.
-         pad_source: A B*T Variable, B is [batch_size], T is the maximum
+         pad_source: A T*B Variable, B is [batch_size], T is the maximum
                      length of target sequences in the batch.
          source_lengths: A [1*batch_size] list; lengths[i] is the length of the
                   batch[i].
          target_lengths: A [1*batch_size] list; lengths[i] is the length of the
                   batch[i].
     """
-    pair_sort = sorted(batch, key=lambda p:len(p[0]), reverse=True)
-    source, target = zip(*pair_sort)
-    batch_size = len(source)
-    max_source_length = len(source[0])
-    source_lengths = [len(i) for i in source]
-    target_lengths = [len(i) for i in target]
-    max_target_length = max(target_lengths)
-    def pad(tensors, max_len, lens, batch_size):
-        pad = Tensor(max_len, batch_size)
-        for i in range(batch_size):
-            pad[:, i] = torch.cat((tensors[i], PAD*torch.ones(max_len-lens[i])))
-        return pad.long()
-    source_words = pad(source, max_source_length, source_lengths, batch_size)
-    target_words = pad(target, max_target_length, target_lengths, batch_size)
-    return source_words, source_lengths, target_words, target_lengths
+    source, source_lens, target, target_lens = zip(*batch)
+    sort_source = np.flipud(np.argsort(source_lens)).tolist()
+    max_source_len = source_lens[sort_source[0]]
+    source_words = torch.stack(source, 1)[0:max_source_len, :]
+    source_words = source_words[:, sort_source]
+    source_lens = [source_lens[i] for i in sort_source]
+    max_target_len = max(target_lens)
+    target_lens = target_lens
+    target_words = torch.stack(target, 1)[0:max_target_len, :]
+
+    return source_words, source_lens, target_words, target_lens
 
