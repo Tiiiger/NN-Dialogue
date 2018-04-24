@@ -11,6 +11,7 @@ from utils import parse, length_to_mask, masked_cross_entropy_loss, save_checkpo
 from tensorboardX import SummaryWriter
 import os
 import sys
+import random
 from time import strftime, localtime, time
 
 args = parse()
@@ -160,12 +161,16 @@ else:
     encoder_optim.load_state_dict(checkpoint['encoder_opt_state'])
     decoder_optim.load_state_dict(checkpoint['decoder_opt_state'])
 
-def train(batch_id, source, source_lens, target, target_lens):
-    encoder.train()
-    decoder.train()
+def run(batch_id, source, source_lens, target, target_lens, mode):
+    if mode == "train":
+        encoder.train()
+        decoder.train()
+        encoder_optim.zero_grad()
+        decoder_optim.zero_grad()
+    elif mode == "validate":
+        encoder.eval()
+        decoder.eval()
     time_start = time()
-    encoder_optim.zero_grad()
-    decoder_optim.zero_grad()
     if args.cuda: source, target = source.cuda(), target.cuda()
     source, target = Variable(source), Variable(target)
     batch_size = source.size()[1]
@@ -193,7 +198,7 @@ def train(batch_id, source, source_lens, target, target_lens):
     if args.cuda: mask = mask.cuda()
 
     loss = masked_cross_entropy_loss(decoder_outputs[:max_target_len], target, mask)
-    loss.backward()
+    if mode == "train": loss.backward()
 
     correct = torch.eq(target.data.float() , pred_seq.float()) * mask.data.byte()
     correct = correct.float().sum()
@@ -203,98 +208,59 @@ def train(batch_id, source, source_lens, target, target_lens):
     time_now = time()
     time_diff = time_now - time_start
     current_lr = encoder_optim.param_groups[0]['lr']
-    if batch_id % args.log_interval == 0:
-        writer.add_scalar('train/accuracy', accuracy, batch_id)
-        writer.add_scalar('train/loss', loss, batch_id)
-        writer.add_scalar('train/lr', current_lr, batch_id)
-        print("Given source sequence:\n {}".format(vocab.to_text(source.data[:source_lens[0], 0])))
-        print("target sequence is:\n {}".format(vocab.to_text(target.data[:target_lens[0], 0])))
-        print("generated sequence is:\n {}".format(vocab.to_text(pred_seq[:, 0])))
-        print("Batch {}: train accuracy: {:.2%}, loss: {}, lr: {}, time use: {:.2}s.".format(batch_id, accuracy, loss.data[0], current_lr, time_diff))
+    if mode == "validate":
+        return correct, total, loss.data[0]
+    elif mode == "train":
+        if batch_id % args.log_interval == 0:
+            writer.add_scalar('train/accuracy', accuracy, batch_id)
+            writer.add_scalar('train/loss', loss, batch_id)
+            writer.add_scalar('train/lr', current_lr, batch_id)
+            i = random.randint(1, batch_size)
+            print("Given source sequence:\n {}".format(vocab.to_text(source.data[:source_lens[i], i])))
+            print("target sequence is:\n {}".format(vocab.to_text(target.data[:target_lens[i], i])))
+            print("generated sequence is:\n {}".format(vocab.to_text(pred_seq[:target_lens[i], i])))
+            print("Batch {}: train accuracy: {:.2%}, loss: {}, lr: {}, time use: {:.2}s.".format(batch_id, accuracy, loss.data[0], current_lr, time_diff))
 
-    if batch_id % args.save_interval == 0:
-        save_checkpoint(
-                args.dir,
-                batch_id,
-                encoder_state = encoder.state_dict(),
-                decoder_state = decoder.state_dict(),
-                encoder_opt_state = encoder_optim.state_dict(),
-                decoder_opt_state = decoder_optim.state_dict()
-                )
+        if batch_id % args.save_interval == 0:
+            save_checkpoint(
+                    args.dir,
+                    batch_id,
+                    encoder_state = encoder.state_dict(),
+                    decoder_state = decoder.state_dict(),
+                    encoder_opt_state = encoder_optim.state_dict(),
+                    decoder_opt_state = decoder_optim.state_dict()
+                    )
 
-
-    nn.utils.clip_grad_norm(encoder.parameters(), args.clip_thresh)
-    nn.utils.clip_grad_norm(decoder.parameters(), args.clip_thresh)
-    encoder_optim.step()
-    decoder_optim.step()
-
-def test(epoch):
-    encoder.eval()
-    decoder.eval()
-    test_loss = 0
-    test_correct = 0
-    test_total = 0
-    for batch_id, (source, source_lens, target, target_lens) in enumerate(test_loader):
-        source, target = Variable(source, volatile=True), Variable(target, volatile=True)
-        batch_size = source.size()[1]
-        if args.cuda:
-            source, target = source.cuda(), target.cuda()
-        encoder_outputs, encoder_last_hidden = encoder(source, source_lens, None)
-        max_target_len = max(target_lens)
-        decoder_hidden = encoder_last_hidden
-        target_slice = Variable(torch.zeros(batch_size).fill_(train_data.SOS), volatile=True).long()
-        decoder_outputs = Variable(torch.zeros(args.global_max_target_len, batch_size, args.vocab_size+4), volatile=True) # preallocate
-        pred_seq = torch.zeros_like(target.data)
-        if args.cuda:
-            source, target = source.cuda(), target.cuda()
-            target_slice = target_slice.cuda()
-            decoder_outputs =decoder_outputs.cuda()
-            pred_seq = pred_seq.cuda()
-        for l in range(max_target_len):
-            predictions, decoder_hidden, atten_scores = decoder(target_slice, encoder_outputs, source_lens, decoder_hidden)
-            decoder_outputs[l] = predictions
-            pred_words = predictions.data.max(1)[1]
-            pred_seq[l] = pred_words
-            target_slice = target[l] # use target
-            #target_slice = pred_words # use own predictions
-        mask = Variable(length_to_mask(target_lens), volatile=True).transpose(0,1).float()
-        if args.cuda: mask = mask.cuda()
-
-        loss = masked_cross_entropy_loss(decoder_outputs[:max_target_len], target, mask)
-
-        correct = torch.eq(target.data.float(), pred_seq.float()) * mask.data.byte()
-        correct = correct.float().sum()
-        total = mask.data.float().sum()
-        test_correct += correct
-        test_total += total
-        test_loss += loss.data[0]
-        #if batch_id == 0:
-        #    print("Given source sequence:\n {}".format(vocab.to_text(source.data[:source_lens[0], 0])))
-        #    print("target sequence is:\n {}".format(vocab.to_text(target.data[:target_lens[0], 0])))
-        #    print("generated sequence is:\n {}".format(vocab.to_text(pred_seq[:, 0])))
-
-    test_accuracy = test_correct / test_total
-    writer.add_scalar('val/accuracy', test_accuracy, epoch)
-    writer.add_scalar('val/loss', test_loss/len(test_loader), epoch)
-    avg_test_loss = test_loss/len(test_loader)
-    print("test # {}: test accuracy {:.2%}, test averaged loss {}".format(epoch, test_accuracy, avg_test_loss))
-    return avg_test_loss
+        nn.utils.clip_grad_norm(encoder.parameters(), args.clip_thresh)
+        nn.utils.clip_grad_norm(decoder.parameters(), args.clip_thresh)
+        encoder_optim.step()
+        decoder_optim.step()
+        return correct, total, loss.data[0]
 
 print("start training...\ntotal batch #: {}".format(len(train_loader)))
 print("logging per {} batches".format(args.log_interval))
 print("evaluating per {} batches".format(args.eval_interval))
 print("saving per {} batches".format(args.save_interval))
-test_iter = start_batch // args.eval_interval
 print("total {} epochs".format(args.epochs))
+
 for epoch in range(args.epochs):
     for batch_id ,(source, source_lens, target, target_lens)in enumerate(train_loader):
         if batch_id < start_batch: continue
-        train(batch_id,source, source_lens, target, target_lens)
+        correct, total, loss = run(batch_id,source, source_lens, target, target_lens, "train")
         if (batch_id+1) % args.eval_interval == 0:
-            encoder.eval()
-            decoder.eval()
-            val_loss = test(test_iter)
-            test_iter += 1
+            val_correct = 0
+            val_total = 0
+            val_loss = 0
+            for batch_id, (source, source_lens, target, target_lens)in enumerate(test_loader):
+                correct, total, loss = run(batch_id, source, source_lens, target, target_lens, "validate")
+                val_correct += correct
+                val_total += total
+                val_loss += loss
+            val_loss /= len(test_loader)
+            val_accuracy = val_correct / val_total
+            print("test # {}: test accuracy {:.2%}, test averaged loss {}".format(batch_id//args.eval_interval, val_accuracy, val_loss))
+            writer.add_scalar('val/accuracy', test_accuracy, epoch*len(train_loader)+batch_id)
+            writer.add_scalar('val/loss', test_loss/len(test_loader), epoch*len(train_loader)+batch_id)
             if args.lr_schedule == "multi":
                 encoder_scheduler.step(val_loss)
                 decoder_scheduler.step(val_loss)
