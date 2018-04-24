@@ -21,7 +21,7 @@ class Vocab():
             elif n == 25002:
                 sentence += "<start>"
             elif n == 25003:
-                sentence += "<pad>"
+                continue
             else:
                 sentence += self.dict[n-1] + " "
         return sentence

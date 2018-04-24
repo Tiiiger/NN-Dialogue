@@ -9,6 +9,8 @@ def parse():
     parser = argparse.ArgumentParser(description='Pass Parameters for Seq2Seq Model')
     parser.add_argument('--batch', dest='batch_size', type=int, default=64,
                         help='batch size of training ')
+    parser.add_argument('--epoch', dest='epochs', type=int, default=1,
+                        help='training epoch ')
     parser.add_argument('--dir', dest='dir', type=str, default="checkpoints",
                         help='path to checkpoint directory ')
     parser.add_argument('--num-workers', type=int, default=4,
@@ -81,7 +83,7 @@ def length_to_mask(lengths, longest=None):
     mask = index < lengths
     return mask
 
-def masked_cross_entropy_loss(logits, target, mask):
+def masked_cross_entropy_loss(logits, target, mask, average=True):
     # credits: https://gist.github.com/jihunchoi/f1434a77df9db1bb337417854b398df1
     logits_flat = logits.view(-1, logits.size(-1))
     logits_flat = log_softmax(logits_flat, 0)
@@ -89,7 +91,8 @@ def masked_cross_entropy_loss(logits, target, mask):
     losses_flat = -torch.gather(logits_flat, dim=1, index=target_flat)
     losses = losses_flat.view(*target.size())
     losses = losses * mask
-    loss = losses.sum()/mask.sum()
+    loss = losses.sum()
+    if average: loss /= mask.sum()
     return loss
 
 def save_checkpoint(path, batch_id, **kwargs):

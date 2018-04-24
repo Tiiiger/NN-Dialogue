@@ -127,10 +127,9 @@ train_loader = torch.utils.data.DataLoader(train_data,
                                            shuffle=False, collate_fn=collate,
                                            num_workers=args.num_workers)
 test_loader = torch.utils.data.DataLoader(test_data,
-                                          batch_size=200,
+                                          batch_size=args.batch_size,
                                           shuffle=True, collate_fn=collate,
                                           num_workers=args.num_workers)
-train_loader = iter(train_loader)
 
 print("finish data loading.")
 print("preparing directory {}".format(args.dir))
@@ -151,6 +150,7 @@ if args.resume is None:
         f.write(" ".join(sys.argv))
         f.write("\n")
     start_batch = 0
+    start_epoch = 0
 else:
     print('resume training...')
     checkpoint = torch.load(os.path.join(args.dir, args.resume))
@@ -160,13 +160,10 @@ else:
     encoder_optim.load_state_dict(checkpoint['encoder_opt_state'])
     decoder_optim.load_state_dict(checkpoint['decoder_opt_state'])
 
-if start_batch > 0:
-    for i in range(start_batch):
-        next(train_loader)
-
 def train(batch_id, source, source_lens, target, target_lens):
+    encoder.train()
+    decoder.train()
     time_start = time()
-    batch_id += start_batch
     encoder_optim.zero_grad()
     decoder_optim.zero_grad()
     if args.cuda: source, target = source.cuda(), target.cuda()
@@ -182,13 +179,13 @@ def train(batch_id, source, source_lens, target, target_lens):
         source, target = source.cuda(), target.cuda()
         target_slice = target_slice.cuda()
         decoder_outputs = decoder_outputs.cuda()
+        pred_seq = pred_seq.cuda()
     for l in range(max_target_len):
         predictions, decoder_hidden, atten_scores = decoder(target_slice, encoder_outputs, source_lens, decoder_hidden)
         decoder_outputs[l] = predictions
         pred_words = predictions.data.max(1)[1]
         pred_seq[l] = pred_words
         target_slice = target[l] # use teacher forcing
-        #TODO: check if we need to detach
         # detach hidden states
         for h in decoder_hidden:
             h.detach_()
@@ -198,7 +195,6 @@ def train(batch_id, source, source_lens, target, target_lens):
     loss = masked_cross_entropy_loss(decoder_outputs[:max_target_len], target, mask)
     loss.backward()
 
-    mask.transpose_(0,1)
     correct = torch.eq(target.data.float() , pred_seq.float()) * mask.data.byte()
     correct = correct.float().sum()
     total = mask.data.float().sum()
@@ -211,6 +207,9 @@ def train(batch_id, source, source_lens, target, target_lens):
         writer.add_scalar('train/accuracy', accuracy, batch_id)
         writer.add_scalar('train/loss', loss, batch_id)
         writer.add_scalar('train/lr', current_lr, batch_id)
+        print("Given source sequence:\n {}".format(vocab.to_text(source.data[:source_lens[0], 0])))
+        print("target sequence is:\n {}".format(vocab.to_text(target.data[:target_lens[0], 0])))
+        print("generated sequence is:\n {}".format(vocab.to_text(pred_seq[:, 0])))
         print("Batch {}: train accuracy: {:.2%}, loss: {}, lr: {}, time use: {:.2}s.".format(batch_id, accuracy, loss.data[0], current_lr, time_diff))
 
     if batch_id % args.save_interval == 0:
@@ -254,23 +253,25 @@ def test(epoch):
         for l in range(max_target_len):
             predictions, decoder_hidden, atten_scores = decoder(target_slice, encoder_outputs, source_lens, decoder_hidden)
             decoder_outputs[l] = predictions
-            pred_words = predictions.max(1)[1]
-            pred_seq[l] = pred_words.data
-            target_slice = pred_words # use own predictions
+            pred_words = predictions.data.max(1)[1]
+            pred_seq[l] = pred_words
+            target_slice = target[l] # use target
+            #target_slice = pred_words # use own predictions
         mask = Variable(length_to_mask(target_lens), volatile=True).transpose(0,1).float()
         if args.cuda: mask = mask.cuda()
-        loss = masked_cross_entropy_loss(decoder_outputs, target, mask)
+
+        loss = masked_cross_entropy_loss(decoder_outputs[:max_target_len], target, mask)
 
         correct = torch.eq(target.data.float(), pred_seq.float()) * mask.data.byte()
-        correct = correct.sum()
+        correct = correct.float().sum()
         total = mask.data.float().sum()
         test_correct += correct
         test_total += total
         test_loss += loss.data[0]
-        if batch_id == 0:
-            print("Given source sequence:\n {}".format(vocab.to_text(source.data[:source_lens[0], 0])))
-            print("target sequence is:\n {}".format(vocab.to_text(target.data[:target_lens[0], 0])))
-            print("generated sequence is:\n {}".format(vocab.to_text(pred_seq[:, 0])))
+        #if batch_id == 0:
+        #    print("Given source sequence:\n {}".format(vocab.to_text(source.data[:source_lens[0], 0])))
+        #    print("target sequence is:\n {}".format(vocab.to_text(target.data[:target_lens[0], 0])))
+        #    print("generated sequence is:\n {}".format(vocab.to_text(pred_seq[:, 0])))
 
     test_accuracy = test_correct / test_total
     writer.add_scalar('val/accuracy', test_accuracy, epoch)
@@ -283,22 +284,20 @@ print("start training...\ntotal batch #: {}".format(len(train_loader)))
 print("logging per {} batches".format(args.log_interval))
 print("evaluating per {} batches".format(args.eval_interval))
 print("saving per {} batches".format(args.save_interval))
-test_iter = 1
-for batch_id in range(len(train_loader)-start_batch):
-    encoder.train()
-    decoder.train()
-    source, source_lens, target, target_lens = next(train_loader)
-    train(batch_id,source, source_lens, target, target_lens)
-    if (batch_id+1) % args.eval_interval == 0:
-        encoder.eval()
-        decoder.eval()
-        val_loss = test(test_iter)
-        test_iter += 1
-        if args.lr_schedule == "multi":
-            encoder_scheduler.step(val_loss)
-            decoder_scheduler.step(val_loss)
-
-
+test_iter = start_batch // args.eval_interval
+print("total {} epochs".format(args.epochs))
+for epoch in range(args.epochs):
+    for batch_id ,(source, source_lens, target, target_lens)in enumerate(train_loader):
+        if batch_id < start_batch: continue
+        train(batch_id,source, source_lens, target, target_lens)
+        if (batch_id+1) % args.eval_interval == 0:
+            encoder.eval()
+            decoder.eval()
+            val_loss = test(test_iter)
+            test_iter += 1
+            if args.lr_schedule == "multi":
+                encoder_scheduler.step(val_loss)
+                decoder_scheduler.step(val_loss)
 
 def evaluate():
     """
