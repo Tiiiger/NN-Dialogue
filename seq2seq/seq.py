@@ -243,7 +243,7 @@ def test(epoch):
         max_target_len = max(target_lens)
         decoder_hidden = encoder_last_hidden
         target_slice = Variable(torch.zeros(batch_size).fill_(train_data.SOS), volatile=True).long()
-        decoder_outputs = Variable(torch.zeros(max_target_len, batch_size, args.vocab_size+4), volatile=True) # preallocate
+        decoder_outputs = Variable(torch.zeros(args.global_max_target_len, batch_size, args.vocab_size+4), volatile=True) # preallocate
         pred_seq = torch.zeros_like(target.data)
         if args.cuda:
             source, target = source.cuda(), target.cuda()
