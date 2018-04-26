@@ -19,8 +19,6 @@ torch.manual_seed(args.seed)
 if args.cuda:
     torch.cuda.manual_seed(args.seed)
 
-time_stamp = strftime("%y%m%d-%H:%M", localtime())
-writer = SummaryWriter(log_dir=os.path.join(".", "runs", "{}-{}".format(args.log_name, time_stamp)))
 cuda_prompt = "you are using cuda." if args.cuda else "you are not using cuda."
 print("start model building, "+cuda_prompt)
 
@@ -139,14 +137,19 @@ print("building model")
 encoder = Encoder(args).cuda() if args.cuda else Encoder(args)
 decoder = Decoder(args).cuda() if args.cuda else Decoder(args)
 
-
-encoder_optim = optim.SGD(encoder.parameters(), lr=args.lr, momentum=args.momentum)
-decoder_optim = optim.SGD(decoder.parameters(), lr=args.lr, momentum=args.momentum)
+if args.optim == "SGD":
+    encoder_optim = optim.SGD(encoder.parameters(), lr=args.lr, momentum=args.momentum)
+    decoder_optim = optim.SGD(decoder.parameters(), lr=args.lr, momentum=args.momentum)
+elif args.optim == "Adam":
+    encoder_optim = optim.Adam(encoder.parameters())
+    decoder_optim = optim.Adam(decoder.parameters())
 if args.lr_schedule == "multi":
     encoder_scheduler = optim.lr_scheduler.ReduceLROnPlateau(encoder_optim, 'min', factor=0.5, patience=2, verbose=True, min_lr=0.1)
     decoder_scheduler = optim.lr_scheduler.ReduceLROnPlateau(decoder_optim, 'min', factor=0.5, patience=2, verbose=True, min_lr=0.1)
 
+time_stamp = strftime("%y%m%d-%H:%M", localtime())
 if args.resume is None:
+    writer = SummaryWriter(log_dir=os.path.join(".", "runs", "{}-{}".format(args.log_name, time_stamp)))
     with open(os.path.join(args.dir, 'command.sh'), 'w') as f:
         f.write(" ".join(sys.argv))
         f.write("\n")
@@ -154,6 +157,7 @@ if args.resume is None:
     start_epoch = 0
 else:
     print('resume training...')
+    writer = SummaryWriter(log_dir=os.path.join(".", "runs", "{}".format(args.log_name)))
     checkpoint = torch.load(os.path.join(args.dir, args.resume))
     start_batch = checkpoint['batch_id']
     encoder.load_state_dict(checkpoint['encoder_state'])
@@ -167,7 +171,7 @@ def run(batch_id, source, source_lens, target, target_lens, mode):
         decoder.train()
         encoder_optim.zero_grad()
         decoder_optim.zero_grad()
-    elif mode == "validate":
+    elif mode == "validate" or mode == "greedy":
         encoder.eval()
         decoder.eval()
     time_start = time()
@@ -190,7 +194,11 @@ def run(batch_id, source, source_lens, target, target_lens, mode):
         decoder_outputs[l] = predictions
         pred_words = predictions.data.max(1)[1]
         pred_seq[l] = pred_words
-        target_slice = target[l] # use teacher forcing
+        if mode == "train" or mode == "validate":
+            target_slice = target[l] # use teacher forcing
+        elif mode == "greedy":
+            target_slice = Variable(pred_words) # use teacher forcing
+            if args.cuda: target_slice = target_slice.cuda()
         # detach hidden states
         for h in decoder_hidden:
             h.detach_()
@@ -208,23 +216,29 @@ def run(batch_id, source, source_lens, target, target_lens, mode):
     time_now = time()
     time_diff = time_now - time_start
     current_lr = encoder_optim.param_groups[0]['lr']
-    if mode == "validate":
+    if mode == "validate" or mode == "greedy":
+        if batch_id == 0 and mode == "greedy":
+            i = random.randint(0, batch_size-1)
+            print("Given source sequence:\n {}".format(vocab.to_text(source.data[:source_lens[i], i])))
+            print("target sequence is:\n {}".format(vocab.to_text(target.data[:target_lens[i], i])))
+            print("greedily decoded sequence is:\n {}test".format(vocab.to_text(pred_seq[:, i])))
         return correct, total, loss.data[0]
     elif mode == "train":
         if batch_id % args.log_interval == 0:
             writer.add_scalar('train/accuracy', accuracy, batch_id)
             writer.add_scalar('train/loss', loss, batch_id)
             writer.add_scalar('train/lr', current_lr, batch_id)
-            i = random.randint(1, batch_size)
+            i = random.randint(0, batch_size-1)
             print("Given source sequence:\n {}".format(vocab.to_text(source.data[:source_lens[i], i])))
             print("target sequence is:\n {}".format(vocab.to_text(target.data[:target_lens[i], i])))
-            print("generated sequence is:\n {}".format(vocab.to_text(pred_seq[:target_lens[i], i])))
+            print("teacher forcing generated sequence is:\n {}test".format(vocab.to_text(pred_seq[:target_lens[i], i])))
             print("Batch {}: train accuracy: {:.2%}, loss: {}, lr: {}, time use: {:.2}s.".format(batch_id, accuracy, loss.data[0], current_lr, time_diff))
 
         if batch_id % args.save_interval == 0:
             save_checkpoint(
                     args.dir,
                     batch_id,
+                    log_name = os.path.join(".", "runs", "{}-{}".format(args.log_name, time_stamp)),
                     encoder_state = encoder.state_dict(),
                     decoder_state = decoder.state_dict(),
                     encoder_opt_state = encoder_optim.state_dict(),
@@ -247,20 +261,21 @@ for epoch in range(args.epochs):
     for batch_id ,(source, source_lens, target, target_lens)in enumerate(train_loader):
         if batch_id < start_batch: continue
         correct, total, loss = run(batch_id,source, source_lens, target, target_lens, "train")
-        if (batch_id+1) % args.eval_interval == 0:
+        if (batch_id) % args.eval_interval == 0:
             val_correct = 0
             val_total = 0
             val_loss = 0
-            for batch_id, (source, source_lens, target, target_lens)in enumerate(test_loader):
-                correct, total, loss = run(batch_id, source, source_lens, target, target_lens, "validate")
+            for val_batch_id, (source, source_lens, target, target_lens)in enumerate(test_loader):
+                correct, total, loss = run(val_batch_id, source, source_lens, target, target_lens, "validate")
                 val_correct += correct
                 val_total += total
                 val_loss += loss
+                run(val_batch_id, source, source_lens, target, target_lens, "greedy")
             val_loss /= len(test_loader)
             val_accuracy = val_correct / val_total
             print("test # {}: test accuracy {:.2%}, test averaged loss {}".format(batch_id//args.eval_interval, val_accuracy, val_loss))
-            writer.add_scalar('val/accuracy', test_accuracy, epoch*len(train_loader)+batch_id)
-            writer.add_scalar('val/loss', test_loss/len(test_loader), epoch*len(train_loader)+batch_id)
+            writer.add_scalar('val/accuracy', val_accuracy, epoch*len(train_loader)+batch_id)
+            writer.add_scalar('val/loss', val_loss, epoch*len(train_loader)+batch_id)
             if args.lr_schedule == "multi":
                 encoder_scheduler.step(val_loss)
                 decoder_scheduler.step(val_loss)
@@ -268,7 +283,7 @@ for epoch in range(args.epochs):
 def evaluate():
     """
     TODO:
- 1. get BLEU score
+    1. get BLEU score
     2. save attention
     """
     raise NotImplementedError

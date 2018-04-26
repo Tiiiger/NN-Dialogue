@@ -39,6 +39,9 @@ def parse():
     parser.add_argument('--layers', dest="num_layers",
                         type=int, default=4,
                         help="rnn number of layers, default :%(default)s")
+    parser.add_argument('--optim', dest="optim",
+                        type=str, default="SGD",
+                        help="type of optimizer to use :%(default)s")
     parser.add_argument('--clip', dest="clip_thresh", type=int, default=1)
     parser.add_argument('--dictpath', dest="dict_path",
                         type=str, default="../Data/movie_25000")
