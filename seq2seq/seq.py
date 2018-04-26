@@ -165,7 +165,7 @@ else:
     encoder_optim.load_state_dict(checkpoint['encoder_opt_state'])
     decoder_optim.load_state_dict(checkpoint['decoder_opt_state'])
 
-def run(batch_id, source, source_lens, target, target_lens, mode):
+def run(batch_id, source, source_lens, target, target_lens, mode, sample_prob=1):
     if mode == "train":
         encoder.train()
         decoder.train()
@@ -193,9 +193,14 @@ def run(batch_id, source, source_lens, target, target_lens, mode):
         predictions, decoder_hidden, atten_scores = decoder(target_slice, encoder_outputs, source_lens, decoder_hidden)
         decoder_outputs[l] = predictions
         pred_words = predictions.data.max(1)[1]
+
         pred_seq[l] = pred_words
         if mode == "train" or mode == "validate":
-            target_slice = target[l] # use teacher forcing
+            coin = random.random()
+            if coin > sample_prob:
+                target_slice = Variable(pred_words)
+            else:
+                target_slice = target[l] # use teacher forcing
         elif mode == "greedy":
             target_slice = Variable(pred_words) # use teacher forcing
             if args.cuda: target_slice = target_slice.cuda()
@@ -251,7 +256,7 @@ def run(batch_id, source, source_lens, target, target_lens, mode):
         decoder_optim.step()
         return correct, total, loss.data[0]
 
-print("start training...\ntotal batch #: {}".format(len(train_loader)))
+print("start training...\ntotal step #: {}".format(len(train_loader)*args.epochs))
 print("logging per {} batches".format(args.log_interval))
 print("evaluating per {} batches".format(args.eval_interval))
 print("saving per {} batches".format(args.save_interval))
@@ -260,7 +265,8 @@ print("total {} epochs".format(args.epochs))
 for epoch in range(args.epochs):
     for batch_id ,(source, source_lens, target, target_lens)in enumerate(train_loader):
         if batch_id < start_batch: continue
-        correct, total, loss = run(batch_id,source, source_lens, target, target_lens, "train")
+        sample_prob = 1 - (1/(len(train_loader)*args.epochs))*batch_id
+        correct, total, loss = run(batch_id,source, source_lens, target, target_lens, "train", sample_prob)
         if (batch_id) % args.eval_interval == 0:
             val_correct = 0
             val_total = 0

@@ -47,6 +47,8 @@ def parse():
                         type=str, default="../Data/movie_25000")
     parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='disables CUDA training')
+    parser.add_argument('--inference', action='store_true', default=False,
+                    help='inference pass')
     parser.add_argument('--reverse', action='store_true', default=False,
                     help='train source given target')
     parser.add_argument('--seed', type=int, default=1, metavar='S',
