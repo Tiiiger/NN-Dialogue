@@ -146,7 +146,7 @@ def run(args, encoder, decoder, encoder_optim, decoder_optim, batch_id, source, 
                 target_slice = target[l] # use teacher forcing
         elif mode == "greedy":
             target_slice = Variable(pred_words) # use teacher forcing
-            if args.cuda: target_slice = target_slice.cuda()
+        if args.cuda: target_slice = target_slice.cuda()
         # detach hidden states
         for h in decoder_hidden:
             h.detach_()
