@@ -7,8 +7,8 @@ from torch.autograd import Variable
 
 def parse():
     parser = argparse.ArgumentParser(description='Pass Parameters for Seq2Seq Model')
-    parser.add_argument('--batch', dest='batch_size', type=int, default=64,
-                        help='batch size of training ')
+    parser.add_argument('--batch', dest='batch_size', type=int, default=256,
+                        help='batch size of training default :%(default)s')
     parser.add_argument('--epoch', dest='epochs', type=int, default=1,
                         help='training epoch ')
     parser.add_argument('--dir', dest='dir', type=str, default="checkpoints",
@@ -91,7 +91,7 @@ def length_to_mask(lengths, longest=None):
 def masked_cross_entropy_loss(logits, target, mask, average=True):
     # credits: https://gist.github.com/jihunchoi/f1434a77df9db1bb337417854b398df1
     logits_flat = logits.view(-1, logits.size(-1))
-    logits_flat = log_softmax(logits_flat, 0)
+    logits_flat = log_softmax(logits_flat, 1)
     target_flat = target.view(-1, 1)
     losses_flat = -torch.gather(logits_flat, dim=1, index=target_flat)
     losses = losses_flat.view(*target.size())
