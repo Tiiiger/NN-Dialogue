@@ -16,10 +16,10 @@ from time import strftime, localtime, time
 
 class Encoder(Module):
 
-    def __init__(self, args):
+    def __init__(self, args, vocab_size):
         super(Encoder, self).__init__()
         self.dropout_prob = args.dropout
-        self.embedding = nn.Embedding(args.vocab_size+4, args.embed_size)
+        self.embedding = nn.Embedding(vocab_size, args.embed_size)
         # Only accept 4 layers bi-directional LSTM right now
         self.rnn = nn.LSTM(input_size=args.embed_size,
                                   hidden_size=args.hidden_size,
@@ -73,17 +73,17 @@ class Attention(Module):
 
 class Decoder(Module):
 
-    def __init__(self, args):
+    def __init__(self, args, vocab_size):
         super(Decoder, self).__init__()
         self.dropout_prob = args.dropout
-        self.embed = nn.Embedding(args.vocab_size+4, args.embed_size)
+        self.embed = nn.Embedding(vocab_size+4, args.embed_size)
         self.rnn = nn.LSTM(input_size = args.embed_size,
                            hidden_size = 2 * args.hidden_size,
                            num_layers = args.num_layers,
                            dropout = self.dropout_prob,
                            bidirectional=False)
         self.output = nn.Linear(4*args.hidden_size, args.hidden_size)
-        self.predict = nn.Linear(args.hidden_size, args.vocab_size+4)
+        self.predict = nn.Linear(args.hidden_size, vocab_size+4)
         self.attention = Attention(args).cuda() if args.cuda else Attention(args)
         for name, param in self.rnn.named_parameters():
             if 'bias' in name:
@@ -108,7 +108,8 @@ class Decoder(Module):
         return predictions, decoder_hiddens, atten_scores
 
 
-def run(args, encoder, decoder, encoder_optim, decoder_optim, batch_id, source, source_lens, target, target_lens, mode, sample_prob=1):
+def run(args, encoder, decoder, encoder_optim, decoder_optim, batch, mode, sample_prob=1):
+    batch_id, (source, source_lens, target, target_lens) = batch
     if mode == "train":
         encoder.train()
         decoder.train()
@@ -125,7 +126,7 @@ def run(args, encoder, decoder, encoder_optim, decoder_optim, batch_id, source, 
     max_target_len = max(target_lens)
     decoder_hidden = encoder_last_hidden
     target_slice = Variable(torch.zeros(batch_size).fill_(train_data.SOS).long())
-    decoder_outputs = Variable(torch.zeros(args.global_max_target_len, batch_size, args.vocab_size+4)) # preallocate
+    decoder_outputs = Variable(torch.zeros(args.global_max_target_len, batch_size, vocab_size+4)) # preallocate
     pred_seq = torch.zeros_like(target.data)
     if args.cuda:
         source, target = source.cuda(), target.cuda()
@@ -264,20 +265,21 @@ if __name__ == "__main__":
     print("total {} epochs".format(args.epochs))
 
     for epoch in range(args.epochs):
-        for batch_id ,(source, source_lens, target, target_lens)in enumerate(train_loader):
+        for batch in enumerate(train_loader):
+            batch_id = batch[0]
             if batch_id < start_batch: continue
             sample_prob = 1 - (1/(len(train_loader)*args.epochs))*batch_id
-            correct, total, loss = run(args, encoder, decoder, encoder_optim, decoder_optim, batch_id,source, source_lens, target, target_lens, "train", sample_prob)
+            correct, total, loss = run(args, encoder, decoder, encoder_optim, decoder_optim, batch, "train", sample_prob)
             if (batch_id+1) % args.eval_interval == 0:
                 val_correct = 0
                 val_total = 0
                 val_loss = 0
-                for val_batch_id, (source, source_lens, target, target_lens)in enumerate(test_loader):
-                    correct, total, loss = run(args, encoder, decoder, encoder_optim, decoder_optim, val_batch_id, source, source_lens, target, target_lens, "validate")
+                for val_batch in enumerate(test_loader):
+                    correct, total, loss = run(args, encoder, decoder, encoder_optim, decoder_optim, val_batch, "validate")
                     val_correct += correct
                     val_total += total
                     val_loss += loss
-                    run(args, encoder, decoder, encoder_optim, decoder_optim, val_batch_id, source, source_lens, target, target_lens, "greedy")
+                    run(args, encoder, decoder, encoder_optim, decoder_optim, val_batch, "greedy")
                 val_loss /= len(test_loader)
                 val_accuracy = val_correct / val_total
                 print("test # {}: test accuracy {:.2%}, test averaged loss {}".format(batch_id//args.eval_interval, val_accuracy, val_loss))

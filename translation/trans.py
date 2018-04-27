@@ -25,26 +25,25 @@ if __name__ == "__main__":
     print("start model building, "+cuda_prompt)
 
     print("start data loading: train data at {}, test data at {}".format(args.train_path, args.test_path))
-    train_data = ParallelData()
-    test_data = ParallelData()
-    vocab = Vocab(args.vocab_path)
-    PAD = train_data.PAD
-    collate = lambda x:pad_batch(x, PAD)
+    English = Vocab("./English")
+    French = Vocab("./French")
+    train_data = ParallelData(French, English, "./French-source-train.txt", "./English-target-train.txt")
+    test_data = ParallelData(French, English, "./French-source-test.txt", "./English-target-test.txt")
     train_loader = torch.utils.data.DataLoader(train_data,
                                                batch_size=args.batch_size,
-                                               shuffle=False, collate_fn=collate,
+                                               shuffle=True,
                                                num_workers=args.num_workers)
     test_loader = torch.utils.data.DataLoader(test_data,
                                               batch_size=args.batch_size,
-                                              shuffle=True, collate_fn=collate,
+                                              shuffle=True,
                                               num_workers=args.num_workers)
 
     print("finish data loading.")
     print("preparing directory {}".format(args.dir))
     os.makedirs(args.dir, exist_ok=True)
     print("building model")
-    encoder = Encoder(args).cuda() if args.cuda else Encoder(args)
-    decoder = Decoder(args).cuda() if args.cuda else Decoder(args)
+    encoder = Encoder(args, train_data.source_vocab.vocab_size).cuda() if args.cuda else Encoder(args,train_data.source_vocab.vocab_size)
+    decoder = Decoder(args, train_data.target_vocab.vocab_size).cuda() if args.cuda else Decoder(args,train_data.target_vocab.vocab_size)
 
     if args.optim == "SGD":
         encoder_optim = optim.SGD(encoder.parameters(), lr=args.lr, momentum=args.momentum)
@@ -80,20 +79,21 @@ if __name__ == "__main__":
     print("total {} epochs".format(args.epochs))
 
     for epoch in range(args.epochs):
-        for batch_id ,(source, source_lens, target, target_lens)in enumerate(train_loader):
+        for batch in enumerate(train_loader):
+            batch_id = batch[0]
             if batch_id < start_batch: continue
             sample_prob = 1 - (1/(len(train_loader)*args.epochs))*batch_id
-            correct, total, loss = run(args, encoder, decoder, encoder_optim, decoder_optim, batch_id,source, source_lens, target, target_lens, "train", sample_prob)
+            correct, total, loss = run(args, encoder, decoder, encoder_optim, decoder_optim, batch, "train", sample_prob)
             if (batch_id+1) % args.eval_interval == 0:
                 val_correct = 0
                 val_total = 0
                 val_loss = 0
-                for val_batch_id, (source, source_lens, target, target_lens)in enumerate(test_loader):
-                    correct, total, loss = run(args, encoder, decoder, encoder_optim, decoder_optim, val_batch_id, source, source_lens, target, target_lens, "validate")
+                for val_batch in enumerate(test_loader):
+                    correct, total, loss = run(args, encoder, decoder, encoder_optim, decoder_optim, val_batch, "validate")
                     val_correct += correct
                     val_total += total
                     val_loss += loss
-                    run(args, encoder, decoder, encoder_optim, decoder_optim, val_batch_id, source, source_lens, target, target_lens, "greedy")
+                    run(args, encoder, decoder, encoder_optim, decoder_optim, val_batch, "greedy")
                 val_loss /= len(test_loader)
                 val_accuracy = val_correct / val_total
                 print("test # {}: test accuracy {:.2%}, test averaged loss {}".format(batch_id//args.eval_interval, val_accuracy, val_loss))

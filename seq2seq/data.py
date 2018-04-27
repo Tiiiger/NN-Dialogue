@@ -8,7 +8,6 @@ import numpy as np
 
 class Vocab():
     def __init__(self, path):
-        self.D = {}
         self.EOS = 25001
         self.SOS = 25002
         self.dict = [s.strip() for s in open(path).readlines()]
@@ -85,7 +84,6 @@ class OpenSub(Dataset):
                        batch[i].
         """
         return self.source[idx], self.source_lens[idx], self.target[idx], self.target_lens[idx]
-
 
 def pad_batch(batch, PAD):
     """

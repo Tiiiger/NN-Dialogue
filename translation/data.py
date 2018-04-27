@@ -1,54 +1,92 @@
 import torch
 import unicodedata
 import string
+from collections import Counter
 import re
+import operator
 import random
+import pandas as pd
 from torch import Tensor, LongTensor
 from torch.utils.data import Dataset
 import sys
 sys.path.insert(0, "../")
 from seq2seq.data import pad_batch
 
-class Lang:
-    def __init__(self, name):
+class Vocab:
+    def __init__(self, path, name=""):
         self.name = name
-        self.word2index = {}
-        self.word2count = {}
-        self.index2word = {0: "SOS", 1: "EOS", 2:"PAD"}
-        self.n_words = 3  # Count SOS and EOS
+        self.SOS = 0
+        self.EOS = 1
+        self.PAD = 2
+        words = [s.strip() for s in open(path).readlines()]
+        self.index2word = dict((i+4, w) for (i,w) in enumerate(words))
+        self.index2word[0] = "<start>"
+        self.index2word[1] = "<end>"
+        self.index2word[2] = "<pad>"
+        self.index2word[3] = "<unk>"
+        self.word2index = dict((w,i) for (i,w) in self.index2word.items())
 
-    def addSentence(self, sentence):
-        for word in sentence.split(' '):
-            self.addWord(word)
+    def to_vec(self, text):
+        vec = []
+        unknown_count = 0
+        for w in text.split(' '):
+            if w in self.word2index:
+                vec.append(self.word2index[w])
+            else:
+                print(w)
+                vec.append(3)
+                unknown_count += 1
+        return vec, unknown_count
 
-    def addWord(self, word):
-        if word not in self.word2index:
-            self.word2index[word] = self.n_words
-            self.word2count[word] = 1
-            self.index2word[self.n_words] = word
-            self.n_words += 1
-        else:
-            self.word2count[word] += 1
-
-# Turn a Unicode string to plain ASCII, thanks to
-# http://stackoverflow.com/a/518232/2809427
-def unicodeToAscii(s):
-    return ''.join(
-        c for c in unicodedata.normalize('NFD', s)
-        if unicodedata.category(c) != 'Mn'
-    )
+    def to_text(self, vec):
+        return [self.index2word[i] for i in vec]
 
 def normalizeString(s):
+    def unicodeToAscii(s):
+        return ''.join(
+            c for c in unicodedata.normalize('NFD', s)
+        if unicodedata.category(c) != 'Mn'
+        )
     s = unicodeToAscii(s.lower().strip())
-    s = re.sub(r"([.!?])", r" \1", s)
-    s = re.sub(r"[^a-zA-Z.!?]+", r" ", s)
+    s = re.sub(r"([',\".!?])", r" \1", s)
     return s
+
+def extract_vocab(lang1, lang2, topk, min_len=3, max_len=10):
+    eng_counts = Counter()
+    fre_counts = Counter()
+    n_words = 0
+    lines = open('../data/translation/%s-%s.txt' % (lang1, lang2), encoding='utf-8').\
+        read().strip().split('\n')
+    for sentence in lines:
+        sentence = normalizeString(sentence)
+        eng, fre = sentence.split('\t')
+        eng_prefixes = (
+            "i am ", "i m ",
+            "he is", "he s ",
+            "she is", "she s",
+            "you are", "you re ",
+            "we are", "we re ",
+            "they are", "they re "
+        )
+        if not eng.startswith(eng_prefixes): continue
+        fre, eng = fre.split(' '), eng.split(' ')
+        if min_len <= len(fre) <= max_len and min_len <= len(eng) <= max_len:
+            eng_counts.update(eng)
+            fre_counts.update(fre)
+    print("total English words #: {}".format(len(eng_counts)))
+    print("total French words #: {}".format(len(fre_counts)))
+    eng_frequent = [w for (w, c) in eng_counts.most_common(topk)]
+    fre_frequent = [w for (w, c) in fre_counts.most_common(topk)]
+    with open('../data/translation/English', 'w') as eng_dict:
+        eng_dict.write('\n'.join(eng_frequent))
+    with open('../data/translation/French', 'w') as fre_dict:
+        fre_dict.write('\n'.join(fre_frequent))
 
 def readLangs(lang1, lang2, reverse=False, mode="train"):
     print("Reading lines...")
 
     # Read the file and split into lines
-    lines = open('../Data/%s-%s-%s.txt' % (lang1, lang2, mode), encoding='utf-8').\
+    lines = open('../Data/translation/%s-%s-%s.txt' % (lang1, lang2, mode), encoding='utf-8').\
         read().strip().split('\n')
 
     # Split every line into pairs and normalize
@@ -76,58 +114,33 @@ def filterPair(p, min_len, max_len):
     )
     return min_len < len(p[0].split(' ')) < max_len and \
         min_len < len(p[1].split(' ')) < max_len and \
-        p[1].startswith(eng_prefixes)
-
-def filterPairs(pairs, min_len, max_len):
-    return [pair for pair in pairs if filterPair(pair, min_len, max_len)]
-
-def prepareData(lang1, lang2, reverse=False, mode):
-    input_lang, output_lang, pairs = readLangs(lang1, lang2, reverse, mode)
-    print("Read %s sentence pairs" % len(pairs))
-    pairs = filterPairs(pairs, 3, 10)
-    print("Trimmed to %s sentence pairs" % len(pairs))
-    print("Counting words...")
-    for pair in pairs:
-        input_lang.addSentence(pair[0])
-        output_lang.addSentence(pair[1])
-    print("Counted words:")
-    print(input_lang.name, input_lang.n_words)
-    print(output_lang.name, output_lang.n_words)
-    return input_lang, output_lang, pairs
+        p[0].startswith(eng_prefixes)
 
 class ParallelData(Dataset) :
 
-    def __init__(self, mode="train"):
-        assert mode in ["train"; "val"]
-        self.SOS = 0
-        self.EOS = 1
-        self.PAD = 2
-        input_lang, output_lang, pairs = prepareData('eng', 'fra', True)
-        self.length = len(pairs)
-        self.source, self.target = self.vectorize(input_lang, output_lang, pairs)
+    def __init__(self, source_vocab, target_vocab, target_path, source_path):
+        self.source_vocab = source_vocab
+        self.target_vocab = target_vocab
+        self.source, self.source_lens, self.target, self.target_lens = self.__vectorize(source_path, target_path)
+        self.length = self.source.size()[0]
 
-    def vectorize(self, input_lang, output_lang, pairs):
-        def sentence2vec(sen, lang):
-            sen_vect  = [lang.word2index[w] for w in sen.split(' ')]
-            sen_vect.append(self.EOS)
-            return sen_vect
-        source = [sentence2vec(pair[0], input_lang) for pair in pairs]
-        target = [sentence2vec(pair[1], output_lang).append(self.EOS) for pair in pairs]
-        return source, target
+    def __vectorize(self, source_path, target_path):
+        cols = range(40)
+        source_frame = pd.read_csv(source_path, delimiter=" ", names=cols)
+        source_lens = (40-source_frame.isnull().sum(axis=1).as_matrix()).tolist()
+        source = torch.from_numpy(source_frame.fillna(self.source_vocab.PAD).as_matrix()).long()
+        target_frame = pd.read_csv(target_path, delimiter=" ", names=cols)
+        target_lens = (40-target_frame.isnull().sum(axis=1)).tolist()
+        target = torch.from_numpy(target_frame.fillna(self.target_vocab.PAD).as_matrix()).long()
+        return source, source_lens, target, target_lens
 
     def __len__(self):
         return self.length
 
     def __getiem__(self, idx):
-        return self.source[idx], len(self.source[idx]), self.target[idx], len(self.target[idx])
+        return self.source[idx], self.source_lens[idx], self.target[idx], self.target_lens[idx]
 
 if __name__ == "__main__":
-    train_data = ParallelData()
-    collate = lambda x:pad_batch(x, PAD)
-    train_loader = torch.utils.data.DataLoader(train_data,
-                                               batch_size=1,
-                                               shuffle=False)
-    for batch in enumerate(train_loader):
-        source, source_lens, target, target_lens = batch
-        print(source, source_lens)
-        raise NotImplementedError
+    english = Vocab("../data/translation/English", "eng")
+    french = Vocab("../data/translation/French", "fre")
+    train = ParallelData(english, french, "./English-target.txt", "./French-source.txt")
