@@ -5,7 +5,7 @@ from torch.nn import Module
 from torch.autograd import Variable
 from torch import optim
 import torch.nn.functional as F
-from data import  Vocab, OpenSub, pad_batch
+from data import  Vocab, OpenSub, sort_batch
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from utils import parse, length_to_mask, masked_cross_entropy_loss, save_checkpoint
 from tensorboardX import SummaryWriter
@@ -210,18 +210,16 @@ if __name__ == "__main__":
     print("start model building, "+cuda_prompt)
 
     print("start data loading: train data at {}, test data at {}".format(args.train_path, args.test_path))
-    train_data = OpenSub(args, args.train_path)
-    test_data = OpenSub(args, args.test_path)
     vocab = Vocab(args.vocab_path)
-    PAD = train_data.PAD
-    collate = lambda x:pad_batch(x, PAD)
+    train_data = CornellMovie(vocab, args.train_path)
+    test_data = CornellMovie(vocab, args.test_path)
     train_loader = torch.utils.data.DataLoader(train_data,
                                                batch_size=args.batch_size,
-                                               shuffle=False, collate_fn=collate,
+                                               shuffle=True, collate_fn=sort_batch,
                                                num_workers=args.num_workers)
     test_loader = torch.utils.data.DataLoader(test_data,
                                               batch_size=args.batch_size,
-                                              shuffle=True, collate_fn=collate,
+                                              shuffle=True, collate_fn=sort_batch,
                                               num_workers=args.num_workers)
 
     print("finish data loading.")
@@ -237,6 +235,9 @@ if __name__ == "__main__":
     elif args.optim == "Adam":
         encoder_optim = optim.Adam(encoder.parameters())
         decoder_optim = optim.Adam(decoder.parameters())
+    else:
+        raise Exception("Invalid optimizer type {}".format(args.optim))
+
     if args.lr_schedule == "multi":
         encoder_scheduler = optim.lr_scheduler.ReduceLROnPlateau(encoder_optim, 'min', factor=0.5, patience=2, verbose=True, min_lr=0.1)
         decoder_scheduler = optim.lr_scheduler.ReduceLROnPlateau(decoder_optim, 'min', factor=0.5, patience=2, verbose=True, min_lr=0.1)

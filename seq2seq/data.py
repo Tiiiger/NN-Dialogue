@@ -85,7 +85,7 @@ class OpenSub(Dataset):
         """
         return self.source[idx], self.source_lens[idx], self.target[idx], self.target_lens[idx]
 
-def pad_batch(batch, PAD):
+def sort_batch(batch):
     """
      Pad a batch to have same length for all sequences.
      Args:
@@ -110,6 +110,33 @@ def pad_batch(batch, PAD):
     max_target_len = max(target_lens)
     target_lens = target_lens
     target_words = torch.stack(target, 1)[0:max_target_len, :]
+    target_words = target_words[:, sort_source]
 
     return source_words, source_lens, target_words, target_lens
 
+
+
+class CornellMovie(Dataset) :
+
+    def __init__(self, vocab, path):
+        source_path, target_path = path + "_source.txt", path + "_target.txt"
+        self.source_vocab = source_vocab
+        self.target_vocab = target_vocab
+        self.source, self.source_lens, self.target, self.target_lens = self.__vectorize(source_path, target_path)
+        self.length = self.source.size()[0]
+
+    def __vectorize(self, source_path, target_path):
+        cols = range(21)
+        source_frame = pd.read_csv(source_path, delimiter=" ", names=cols)
+        source_lens = (21-source_frame.isnull().sum(axis=1).as_matrix()).tolist()
+        source = torch.from_numpy(source_frame.fillna(self.source_vocab.PAD).as_matrix()).long()
+        target_frame = pd.read_csv(target_path, delimiter=" ", names=cols)
+        target_lens = (21-target_frame.isnull().sum(axis=1)).tolist()
+        target = torch.from_numpy(target_frame.fillna(self.target_vocab.PAD).as_matrix()).long()
+        return source, source_lens, target, target_lens
+
+    def __len__(self):
+        return self.length
+
+    def __getiem__(self, idx):
+        return self.source[idx], self.source_lens[idx], self.target[idx], self.target_lens[idx]
