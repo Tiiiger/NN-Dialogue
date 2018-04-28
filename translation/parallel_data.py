@@ -40,7 +40,7 @@ class Vocab:
         return vec, unknown_count
 
     def to_text(self, vec):
-        return [self.index2word[i] for i in vec]
+        return " ".join([self.index2word[i] for i in vec])
 
 def normalizeString(s):
     def unicodeToAscii(s):
@@ -119,29 +119,31 @@ def filterPair(p, min_len, max_len):
 
 class ParallelData(Dataset) :
 
-    def __init__(self, source_vocab, target_vocab, target_path, source_path):
+    def __init__(self, source_vocab, target_vocab, source_path, target_path):
         self.source_vocab = source_vocab
         self.target_vocab = target_vocab
         self.source, self.source_lens, self.target, self.target_lens = self.__vectorize(source_path, target_path)
         self.length = self.source.size()[0]
 
     def __vectorize(self, source_path, target_path):
-        cols = range(40)
+        cols = range(50)
         source_frame = pd.read_csv(source_path, delimiter=" ", names=cols)
-        source_lens = (40-source_frame.isnull().sum(axis=1).as_matrix()).tolist()
+        source_lens = (50-source_frame.isnull().sum(axis=1).as_matrix()).tolist()
         source = torch.from_numpy(source_frame.fillna(self.source_vocab.PAD).as_matrix()).long()
         target_frame = pd.read_csv(target_path, delimiter=" ", names=cols)
-        target_lens = (40-target_frame.isnull().sum(axis=1)).tolist()
+        target_lens = (50-target_frame.isnull().sum(axis=1)).tolist()
         target = torch.from_numpy(target_frame.fillna(self.target_vocab.PAD).as_matrix()).long()
         return source, source_lens, target, target_lens
 
     def __len__(self):
         return self.length
 
-    def __getiem__(self, idx):
+    def __getitem__(self, idx):
         return self.source[idx], self.source_lens[idx], self.target[idx], self.target_lens[idx]
 
 if __name__ == "__main__":
-    english = Vocab("../data/translation/English", "eng")
-    french = Vocab("../data/translation/French", "fre")
-    train = ParallelData(english, french, "./English-target.txt", "./French-source.txt")
+    English = Vocab("../data/translation/English")
+    French = Vocab("../data/translation/French")
+    print(English.vocab_size)
+
+

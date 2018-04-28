@@ -12,6 +12,7 @@ sys.path.insert(0, "../seq2seq")
 from utils import parse, length_to_mask, masked_cross_entropy_loss, save_checkpoint
 from seq import Encoder, Decoder, run
 from tensorboardX import SummaryWriter
+from data import pad_batch
 import os
 import random
 from time import strftime, localtime, time
@@ -30,13 +31,16 @@ if __name__ == "__main__":
     French = Vocab("../data/translation/French")
     train_data = ParallelData(French, English, "../data/translation/French-train-source.txt", "../data/translation/English-train-target.txt")
     test_data = ParallelData(French, English, "../data/translation/French-val-source.txt", "../data/translation/English-val-target.txt")
+    collate = lambda x : pad_batch(x, train_data.source_vocab.PAD)
     train_loader = torch.utils.data.DataLoader(train_data,
                                                batch_size=args.batch_size,
                                                shuffle=True,
+                                               collate_fn = collate,
                                                num_workers=args.num_workers)
     test_loader = torch.utils.data.DataLoader(test_data,
                                               batch_size=args.batch_size,
                                               shuffle=True,
+                                              collate_fn = collate,
                                               num_workers=args.num_workers)
 
     print("finish data loading.")
@@ -79,25 +83,64 @@ if __name__ == "__main__":
     print("saving per {} batches".format(args.save_interval))
     print("total {} epochs".format(args.epochs))
 
+    train_loss = 0
+    train_correct = 0
+    train_total = 0
+    count = 0
+    time_last = time()
     for epoch in range(args.epochs):
         for batch in enumerate(train_loader):
             batch_id = batch[0]
             if batch_id < start_batch: continue
-            sample_prob = 1 - (1/(len(train_loader)*args.epochs))*batch_id
-            correct, total, loss = run(args, encoder, decoder, encoder_optim, decoder_optim, batch, "train", sample_prob)
+            #sample_prob = 1 - (1/(len(train_loader)*args.epochs))*batch_id
+            sample_prob = 0.5
+            correct, total, loss = \
+            run(args, train_data.source_vocab, train_data.target_vocab,
+                    encoder, decoder, encoder_optim, decoder_optim, batch, writer, "train", sample_prob)
+            train_loss += loss
+            train_correct += correct
+            train_total += total
+            count += 1
+            if (batch_id) % args.log_interval == 0:
+                accu = train_correct/train_total
+                train_loss /= count
+                time_now = time()
+                time_diff = time_now - time_last
+                time_last = time_now
+                writer.add_scalar('train/accuracy', accu, (epoch * len(train_loader) + batch_id) / args.log_interval)
+                writer.add_scalar('train/loss', train_loss, (epoch * len(train_loader) + batch_id) / args.log_interval)
+                print(count)
+                print("Batch {}: train accuracy: {:.2%}, loss: {}, time use: {:.2}s.".format(batch_id, accu, train_loss, time_diff))
+                train_loss = 0
+                train_correct = 0
+                train_total = 0
+                count = 0
+            if (batch_id) % args.save_interval == 0:
+                save_checkpoint(
+                        args.dir,
+                        batch_id,
+                        log_name = os.path.join(".", "runs", "{}-{}".format(args.log_name, time_stamp)),
+                        encoder_state = encoder.state_dict(),
+                        decoder_state = decoder.state_dict(),
+                        encoder_opt_state = encoder_optim.state_dict(),
+                        decoder_opt_state = decoder_optim.state_dict()
+                        )
             if (batch_id+1) % args.eval_interval == 0:
                 val_correct = 0
                 val_total = 0
                 val_loss = 0
                 for val_batch in enumerate(test_loader):
-                    correct, total, loss = run(args, encoder, decoder, encoder_optim, decoder_optim, val_batch, "validate")
+                    correct, total, loss = \
+                            run(args, train_data.source_vocab, train_data.target_vocab,
+                                    encoder, decoder, encoder_optim, decoder_optim, val_batch, writer, "validate")
                     val_correct += correct
                     val_total += total
                     val_loss += loss
-                    run(args, encoder, decoder, encoder_optim, decoder_optim, val_batch, "greedy")
+                    run(args, train_data.source_vocab, train_data.target_vocab,
+                            encoder, decoder, encoder_optim, decoder_optim, val_batch, writer, "greedy")
                 val_loss /= len(test_loader)
                 val_accuracy = val_correct / val_total
-                print("test # {}: test accuracy {:.2%}, test averaged loss {}".format(batch_id//args.eval_interval, val_accuracy, val_loss))
+                print("epoch {} test # {}: test accuracy {:.2%}, test averaged loss {}".format(epoch, batch_id//args.eval_interval, val_accuracy, val_loss))
                 writer.add_scalar('val/accuracy', val_accuracy, epoch*len(train_loader)+batch_id)
                 writer.add_scalar('val/loss', val_loss, epoch*len(train_loader)+batch_id)
                 if args.lr_schedule == "multi":
