@@ -25,6 +25,7 @@ class Vocab:
         self.index2word[2] = "<pad>"
         self.index2word[3] = "<unk>"
         self.word2index = dict((w,i) for (i,w) in self.index2word.items())
+        self.vocab_size = len(self.index2word)
 
     def to_vec(self, text):
         vec = []

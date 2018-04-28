@@ -6,14 +6,15 @@ from torch.autograd import Variable
 from torch import optim
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+import sys
+from parallel_data import ParallelData, Vocab
+sys.path.insert(0, "../seq2seq")
 from utils import parse, length_to_mask, masked_cross_entropy_loss, save_checkpoint
+from seq import Encoder, Decoder, run
 from tensorboardX import SummaryWriter
 import os
-import sys
 import random
 from time import strftime, localtime, time
-
-from data import ParallelData
 
 if __name__ == "__main__":
     args = parse()
@@ -25,10 +26,10 @@ if __name__ == "__main__":
     print("start model building, "+cuda_prompt)
 
     print("start data loading: train data at {}, test data at {}".format(args.train_path, args.test_path))
-    English = Vocab("./English")
-    French = Vocab("./French")
-    train_data = ParallelData(French, English, "./French-source-train.txt", "./English-target-train.txt")
-    test_data = ParallelData(French, English, "./French-source-test.txt", "./English-target-test.txt")
+    English = Vocab("../data/translation/English")
+    French = Vocab("../data/translation/French")
+    train_data = ParallelData(French, English, "../data/translation/French-train-source.txt", "../data/translation/English-train-target.txt")
+    test_data = ParallelData(French, English, "../data/translation/French-val-source.txt", "../data/translation/English-val-target.txt")
     train_loader = torch.utils.data.DataLoader(train_data,
                                                batch_size=args.batch_size,
                                                shuffle=True,
