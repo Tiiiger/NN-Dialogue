@@ -255,14 +255,16 @@ if __name__ == "__main__":
     train_loss = []
     train_correct = 0
     train_total = 0
+    time_last = time()
     for epoch in range(args.epochs):
         for batch in enumerate(train_loader):
             batch_id = batch[0]
             if batch_id < start_batch: continue
             #sample_prob = 1 - (1/(len(train_loader)*args.epochs))*batch_id
             sample_prob = 1
-            correct, total, loss = run(args, train_data.source_vocab, train_data.target_vocab, encoder, decoder, encoder_optim, decoder_optim, batch, "train", sample_prob)
-            train_loss += loss
+            correct, total, loss = run(args, train_data.source_vocab, train_data.target_vocab, encoder, decoder,
+                    encoder_optim, decoder_optim, batch, writer, "train", sample_prob)
+            train_loss.append(loss)
             train_correct += correct
             train_total += total
             if (batch_id) % args.log_interval == 0:
@@ -273,12 +275,10 @@ if __name__ == "__main__":
                 time_last = time_now
                 writer.add_scalar('train/accuracy', accu, (epoch * len(train_loader) + batch_id) / args.log_interval)
                 writer.add_scalar('train/loss', avg_loss, (epoch * len(train_loader) + batch_id) / args.log_interval)
-                print(count)
                 print("Batch {}: train accuracy: {:.2%}, loss: {}, time use: {:.2}s.".format(batch_id, accu, avg_loss, time_diff))
-                train_loss = 0
+                train_loss = []
                 train_correct = 0
                 train_total = 0
-                count = 0
             if (batch_id+1) % args.save_interval == 0:
                 save_checkpoint(
                         args.dir,
@@ -293,18 +293,28 @@ if __name__ == "__main__":
             if (batch_id+1) % args.eval_interval == 0:
                 val_correct = 0
                 val_total = 0
-                val_loss = 0
+                val_loss = []
+                greedy_correct = 0
+                greedy_total = 0
+                greedy_loss = []
                 for val_batch in enumerate(test_loader):
-                    correct, total, loss = run(args, train_data.source_vocab, train_data.target_vocab, encoder, decoder, encoder_optim, decoder_optim, val_batch, "validate")
+                    correct, total, loss = run(args, train_data.source_vocab, train_data.target_vocab, encoder, decoder,
+                            encoder_optim, decoder_optim, val_batch, writer, "validate")
                     val_correct += correct
                     val_total += total
-                    val_loss += loss
-                    run(args, etrain_data.source_vocab, train_data.target_vocab, ncoder, decoder, encoder_optim, decoder_optim, val_batch, "greedy")
-                val_loss /= len(test_loader)
+                    val_loss.append(loss)
+                    run(args, train_data.source_vocab, train_data.target_vocab, encoder, decoder,
+                            encoder_optim, decoder_optim, val_batch, writer, "greedy")
+                val_avg_loss = sum(val_loss)/len(val_loss)
                 val_accuracy = val_correct / val_total
-                print("test # {}: test accuracy {:.2%}, test averaged loss {}".format(batch_id//args.eval_interval, val_accuracy, val_loss))
+                greedy_avg_loss = sum(greedy_loss)/len(greedy_loss)
+                greedy_accuracy = greedy_correct / greedy_total
+                print("test # {}: test accuracy {:.2%}, teacher forcing averaged loss {}, greedy averaged loss".format(batch_id//args.eval_interval,
+                    val_accuracy, val_avg_loss, greedy_avg_loss))
                 writer.add_scalar('val/accuracy', val_accuracy, epoch*len(train_loader)+batch_id)
                 writer.add_scalar('val/loss', val_loss, epoch*len(train_loader)+batch_id)
+                writer.add_scalar('greedy/accuracy', greedy_accuracy, epoch*len(train_loader)+batch_id)
+                writer.add_scalar('greedy/loss', greedy_loss, epoch*len(train_loader)+batch_id)
                 if args.lr_schedule == "multi":
                     encoder_scheduler.step(val_loss)
                     decoder_scheduler.step(val_loss)
