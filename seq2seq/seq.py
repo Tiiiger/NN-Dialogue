@@ -5,7 +5,7 @@ from torch.nn import Module
 from torch.autograd import Variable
 from torch import optim
 import torch.nn.functional as F
-from data import  Vocab, OpenSub, sort_batch
+from data import  CornellVocab, CornellMovie, OpenSubVocab, OpenSub, sort_batch
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from utils import parse, length_to_mask, masked_cross_entropy_loss, save_checkpoint
 from tensorboardX import SummaryWriter
@@ -194,11 +194,12 @@ if __name__ == "__main__":
     print("start model building, "+cuda_prompt)
 
     print("start data loading: train data at {}, test data at {}".format(args.train_path, args.test_path))
-    vocab = Vocab(args.vocab_path)
-    #train_data = CornellMovie(vocab, args.train_path)
-    #test_data = CornellMovie(vocab, args.test_path)
-    train_data = OpenSub(args, vocab, args.train_path)
-    test_data = OpenSub(args, vocab, args.test_path)
+    vocab = CornellVocab(args.vocab_path)
+    train_data = CornellMovie(vocab, args.train_path)
+    test_data = CornellMovie(vocab, args.test_path)
+    #vocab = OpenSubVocab(args.vocab_path)
+    #train_data = OpenSub(args, vocab, args.train_path)
+    #test_data = OpenSub(args, vocab, args.test_path)
     train_loader = torch.utils.data.DataLoader(train_data,
                                                batch_size=args.batch_size,
                                                shuffle=True, collate_fn=sort_batch,

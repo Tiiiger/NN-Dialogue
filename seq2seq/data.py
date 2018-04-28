@@ -6,10 +6,11 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 import pandas as pd
 import numpy as np
 
-class Vocab():
+class OpenSubVocab():
     def __init__(self, path):
         self.EOS = 25001
         self.SOS = 25002
+        self.PAD = 25003
         self.dict = [s.strip() for s in open(path).readlines()]
         self.vocab_size = 25004
 
@@ -25,6 +26,36 @@ class Vocab():
             else:
                 sentence += self.dict[n-1] + " "
         return sentence
+
+class CornellVocab():
+    def __init__(self, path, name=""):
+        self.name = name
+        self.SOS = 0
+        self.EOS = 1
+        self.PAD = 2
+        words = [s.strip() for s in open(path).readlines()]
+        self.index2word = dict((i+4, w) for (i,w) in enumerate(words))
+        self.index2word[0] = "<start>"
+        self.index2word[1] = "<end>"
+        self.index2word[2] = "<pad>"
+        self.index2word[3] = "<unk>"
+        self.word2index = dict((w,i) for (i,w) in self.index2word.items())
+        self.vocab_size = len(self.index2word)
+
+    def to_vec(self, text):
+        vec = []
+        unknown_count = 0
+        for w in text.split(' '):
+            if w in self.word2index:
+                vec.append(self.word2index[w])
+            else:
+                print(w)
+                vec.append(3)
+                unknown_count += 1
+        return vec, unknown_count
+
+    def to_text(self, vec):
+        return " ".join([self.index2word[i] for i in vec])
 
 class OpenSub(Dataset):
     def __init__(self, params, vocab, path=None):
@@ -117,8 +148,8 @@ class CornellMovie(Dataset) :
 
     def __init__(self, vocab, path):
         source_path, target_path = path + "_source.txt", path + "_target.txt"
-        self.source_vocab = source_vocab
-        self.target_vocab = target_vocab
+        self.source_vocab = vocab
+        self.target_vocab = vocab
         self.source, self.source_lens, self.target, self.target_lens = self.__vectorize(source_path, target_path)
         self.length = self.source.size()[0]
 
