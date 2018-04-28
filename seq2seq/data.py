@@ -11,6 +11,7 @@ class Vocab():
         self.EOS = 25001
         self.SOS = 25002
         self.dict = [s.strip() for s in open(path).readlines()]
+        self.vocab_size = 25004
 
     def to_text(self, t):
         sentence = ""
@@ -26,25 +27,21 @@ class Vocab():
         return sentence
 
 class OpenSub(Dataset):
-    def __init__(self, params, path=None):
+    def __init__(self, params, vocab, path=None):
         if path==None:
             path = params.train_path
         self.params = params
         self.EOS = params.vocab_size+1
         self.SOS = params.vocab_size+2
         self.PAD = params.vocab_size+3
+        self.source_vocab = vocab
+        self.target_vocab = vocab
         self.vocab_size = params.vocab_size+3
         self.__read_data(path, params.reverse)
         self.length = self.source.size()[0]
 
     def __len__(self):
         return self.length
-
-    def __split_to_tensor(self, line):
-        line = line.split()
-        arr = [int(i) for i in line]
-        arr.append(self.EOS)
-        return Tensor(arr)
 
     def __read_data(self, path, reverse):
         """
