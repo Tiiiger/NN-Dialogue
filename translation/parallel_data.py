@@ -12,7 +12,7 @@ import sys
 sys.path.insert(0, "../")
 from seq2seq.data import pad_batch
 
-class Vocab:
+class Vocab():
     def __init__(self, path, name=""):
         self.name = name
         self.SOS = 0
