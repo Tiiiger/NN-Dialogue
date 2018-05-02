@@ -18,6 +18,9 @@ def parse():
     parser.add_argument('--pretrain', dest='pretrain', action="store_const",
                         const=True, default=False, help='use the pretrain model \
                         to run')
+    parser.add_argument('--dataset', dest="dataset", type=str,
+                        default="../data/train/2020_train",
+                        help="path to train set, default :%(default)s")
     parser.add_argument('--train-path', dest="train_path", type=str,
                         default="../data/train/2020_train",
                         help="path to train set, default :%(default)s")
@@ -73,7 +76,10 @@ def parse():
                     help='path to checkpoint')
     parser.add_argument('--global-max-target-len', type=int, default=20, metavar='N',
                     help='intervals of validating')
-    # parser.add_argument('--testpath', dest="test_path", type=str, default="../Data/t_given_s_train.txt")
+    parser.add_argument('--testpath', dest="test_path", type=str, default="../Data/t_given_s_train.txt")
+    parser.add_argument('--beam-size', type=int, default=5, metavar='N', help='beam size')
+    parser.add_argument('--n-best', type=int, default=5, metavar='N', help='top n candiates in beam search')
+    parser.add_argument('--alpha', type=float, default=0, metavar='F', help='length regularizer')
     args = parser.parse_args()
     args.cuda = not args.no_cuda and torch.cuda.is_available()
     return args

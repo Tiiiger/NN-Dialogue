@@ -92,7 +92,7 @@ class Decoder(Module):
             elif 'weight' in name:
                 nn.init.uniform(param, -0.08, 0.08)
 
-    def forward(self, l, target, encoder_outputs, source_lengths, hidden=None):
+    def forward(self, target, encoder_outputs, source_lengths, hidden=None):
         """
         args:
         target: A LongTensor contains a word of the target sentence. size: 1*B.

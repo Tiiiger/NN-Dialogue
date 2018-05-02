@@ -11,6 +11,7 @@ class OpenSubVocab():
         self.EOS = 25001
         self.SOS = 25002
         self.PAD = 25003
+        self.UNK = 1
         self.dict = [s.strip() for s in open(path).readlines()]
         self.vocab_size = 25004
 
@@ -33,6 +34,7 @@ class CornellVocab():
         self.SOS = 0
         self.EOS = 1
         self.PAD = 2
+        self.UNK = 3
         words = [s.strip() for s in open(path).readlines()]
         self.index2word = dict((i+4, w) for (i,w) in enumerate(words))
         self.index2word[0] = "<start>"
@@ -49,7 +51,6 @@ class CornellVocab():
             if w in self.word2index:
                 vec.append(self.word2index[w])
             else:
-                print(w)
                 vec.append(3)
                 unknown_count += 1
         return vec, unknown_count
@@ -62,12 +63,8 @@ class OpenSub(Dataset):
         if path==None:
             path = params.train_path
         self.params = params
-        self.EOS = params.vocab_size+1
-        self.SOS = params.vocab_size+2
-        self.PAD = params.vocab_size+3
         self.source_vocab = vocab
         self.target_vocab = vocab
-        self.vocab_size = params.vocab_size+3
         self.__read_data(path, params.reverse)
         self.length = self.source.size()[0]
 
@@ -94,10 +91,11 @@ class OpenSub(Dataset):
         cols = range(20)
         source_frame = pd.read_csv(source_path, delimiter=" ", names=cols)
         self.source_lens = (20-source_frame.isnull().sum(axis=1).as_matrix()).tolist()
-        self.source = torch.from_numpy(source_frame.fillna(self.PAD).as_matrix()).long()
+        self.source = torch.from_numpy(source_frame.fillna(self.source_vocab.PAD).as_matrix()).long()
         target_frame = pd.read_csv(target_path, delimiter=" ", names=cols)
         self.target_lens = (20-target_frame.isnull().sum(axis=1)).tolist()
-        self.target = torch.from_numpy(target_frame.fillna(self.PAD).as_matrix()).long()
+        self.target = torch.from_numpy(target_frame.fillna(self.target_vocab.PAD).as_matrix()).long()
+
     def __getitem__(self, idx):
         """
         Get a batch of source and target sequences.
@@ -139,6 +137,7 @@ def sort_batch(batch):
     target_lens = target_lens
     target_words = torch.stack(target, 1)[0:max_target_len, :]
     target_words = target_words[:, sort_source]
+    target_lens = [target_lens[i] for i in sort_source]
 
     return source_words, source_lens, target_words, target_lens
 
@@ -166,5 +165,5 @@ class CornellMovie(Dataset) :
     def __len__(self):
         return self.length
 
-    def __getiem__(self, idx):
+    def __getitem__(self, idx):
         return self.source[idx], self.source_lens[idx], self.target[idx], self.target_lens[idx]
