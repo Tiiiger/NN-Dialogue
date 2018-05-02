@@ -109,7 +109,7 @@ class Decoder(Module):
         return predictions, decoder_hiddens, atten_scores
 
 
-def run(args, source_vocab, target_vocab, encoder, decoder, encoder_optim, decoder_optim, batch, writer, mode, sample_prob=1):
+def run(args, source_vocab, target_vocab, encoder, decoder, encoder_optim, decoder_optim, batch, mode, sample_prob=1):
     batch_id, (source, source_lens, target, target_lens) = batch
     if mode == "train":
         encoder.train()
@@ -172,7 +172,6 @@ def run(args, source_vocab, target_vocab, encoder, decoder, encoder_optim, decod
         return correct, total, loss.data[0]
     elif mode == "train":
         if (batch_id+1) % args.log_interval == 0:
-            writer.add_scalar('train/lr', current_lr, batch_id)
             i = random.randint(0, batch_size-1)
             print("Given source sequence:\n {}".format(source_vocab.to_text(source.data[:source_lens[i], i])))
             print("target sequence is:\n {}".format(target_vocab.to_text(target.data[:target_lens[i], i])))
@@ -194,12 +193,12 @@ if __name__ == "__main__":
     print("start model building, "+cuda_prompt)
 
     print("start data loading: train data at {}, test data at {}".format(args.train_path, args.test_path))
-    vocab = CornellVocab(args.vocab_path)
-    train_data = CornellMovie(vocab, args.train_path)
-    test_data = CornellMovie(vocab, args.test_path)
-    #vocab = OpenSubVocab(args.vocab_path)
-    #train_data = OpenSub(args, vocab, args.train_path)
-    #test_data = OpenSub(args, vocab, args.test_path)
+    #vocab = CornellVocab(args.vocab_path)
+    #train_data = CornellMovie(vocab, args.train_path)
+    #test_data = CornellMovie(vocab, args.test_path)
+    vocab = OpenSubVocab(args.vocab_path)
+    train_data = OpenSub(args, vocab, args.train_path)
+    test_data = OpenSub(args, vocab, args.test_path)
     train_loader = torch.utils.data.DataLoader(train_data,
                                                batch_size=args.batch_size,
                                                shuffle=True, collate_fn=sort_batch,
@@ -209,12 +208,17 @@ if __name__ == "__main__":
                                               shuffle=True, collate_fn=sort_batch,
                                               num_workers=args.num_workers)
 
+    source, source_len, target, target_len = next(iter(train_loader))
+    #print(vocab.to_text(source[:source_len[20], 20]))
+    #print(source_len[20])
+    #print(vocab.to_text(target[:target_len[20], 20]))
+    #print(target_len[20])
     print("finish data loading.")
     print("preparing directory {}".format(args.dir))
     os.makedirs(args.dir, exist_ok=True)
     print("building model")
-    encoder = Encoder(args, 25004).cuda() if args.cuda else Encoder(args, 25004)
-    decoder = Decoder(args, 25004).cuda() if args.cuda else Decoder(args, 25004)
+    encoder = Encoder(args, train_data.source_vocab.vocab_size).cuda() if args.cuda else Encoder(args, train_data.source_vocab.vocab_size)
+    decoder = Decoder(args, train_data.target_vocab.vocab_size).cuda() if args.cuda else Decoder(args, train_data.target_vocab.vocab_size)
 
     if args.optim == "SGD":
         encoder_optim = optim.SGD(encoder.parameters(), lr=args.lr, momentum=args.momentum)
@@ -258,12 +262,12 @@ if __name__ == "__main__":
     time_last = time()
     for epoch in range(args.epochs):
         for batch in enumerate(train_loader):
-            batch_id = batch[0]
+            batch_id = batch[0]+epoch * len(train_loader)
             if batch_id < start_batch: continue
             #sample_prob = 1 - (1/(len(train_loader)*args.epochs))*batch_id
             sample_prob = 1
             correct, total, loss = run(args, train_data.source_vocab, train_data.target_vocab, encoder, decoder,
-                    encoder_optim, decoder_optim, batch, writer, "train", sample_prob)
+                    encoder_optim, decoder_optim, batch, "train", sample_prob)
             train_loss.append(loss)
             train_correct += correct
             train_total += total
@@ -273,8 +277,8 @@ if __name__ == "__main__":
                 time_now = time()
                 time_diff = time_now - time_last
                 time_last = time_now
-                writer.add_scalar('train/accuracy', accu, (epoch * len(train_loader) + batch_id) / args.log_interval)
-                writer.add_scalar('train/loss', avg_loss, (epoch * len(train_loader) + batch_id) / args.log_interval)
+                writer.add_scalar('train/accuracy', accu, batch_id)
+                writer.add_scalar('train/loss', avg_loss, batch_id)
                 print("Batch {}: train accuracy: {:.2%}, loss: {}, time use: {:.2}s.".format(batch_id, accu, avg_loss, time_diff))
                 train_loss = []
                 train_correct = 0
@@ -299,22 +303,25 @@ if __name__ == "__main__":
                 greedy_loss = []
                 for val_batch in enumerate(test_loader):
                     correct, total, loss = run(args, train_data.source_vocab, train_data.target_vocab, encoder, decoder,
-                            encoder_optim, decoder_optim, val_batch, writer, "validate")
+                            encoder_optim, decoder_optim, val_batch, "validate", 1)
                     val_correct += correct
                     val_total += total
                     val_loss.append(loss)
-                    run(args, train_data.source_vocab, train_data.target_vocab, encoder, decoder,
-                            encoder_optim, decoder_optim, val_batch, writer, "greedy")
+                    correct, total, loss = run(args, train_data.source_vocab, train_data.target_vocab, encoder, decoder,
+                            encoder_optim, decoder_optim, val_batch, "greedy", 0)
+                    greedy_correct += correct
+                    greedy_total += total
+                    greedy_loss.append(loss)
                 val_avg_loss = sum(val_loss)/len(val_loss)
                 val_accuracy = val_correct / val_total
                 greedy_avg_loss = sum(greedy_loss)/len(greedy_loss)
                 greedy_accuracy = greedy_correct / greedy_total
-                print("test # {}: test accuracy {:.2%}, teacher forcing averaged loss {}, greedy averaged loss".format(batch_id//args.eval_interval,
+                print("batch {} test : test accuracy {:.2%}, teacher forcing averaged loss {}, greedy averaged loss {}".format(batch_id,
                     val_accuracy, val_avg_loss, greedy_avg_loss))
-                writer.add_scalar('val/accuracy', val_accuracy, epoch*len(train_loader)+batch_id)
-                writer.add_scalar('val/loss', val_loss, epoch*len(train_loader)+batch_id)
-                writer.add_scalar('greedy/accuracy', greedy_accuracy, epoch*len(train_loader)+batch_id)
-                writer.add_scalar('greedy/loss', greedy_loss, epoch*len(train_loader)+batch_id)
+                writer.add_scalar('val/accuracy', val_accuracy, batch_id)
+                writer.add_scalar('val/loss', val_avg_loss, batch_id)
+                writer.add_scalar('greedy/accuracy', greedy_accuracy, batch_id)
+                writer.add_scalar('greedy/loss', greedy_avg_loss, batch_id)
                 if args.lr_schedule == "multi":
                     encoder_scheduler.step(val_loss)
                     decoder_scheduler.step(val_loss)
