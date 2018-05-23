@@ -28,9 +28,9 @@ class Encoder(Module):
                                   bidirectional=True)
         for name, param in self.rnn.named_parameters():
             if 'bias' in name:
-                nn.init.constant(param, 0.0)
+                nn.init.constant_(param, 0.0)
             elif 'weight' in name:
-                nn.init.uniform(param, -0.08, 0.08)
+                nn.init.uniform_(param, -0.08, 0.08)
 
     def forward(self, source, lens, hidden=None):
         dense = self.embedding(source)
@@ -88,9 +88,9 @@ class Decoder(Module):
         self.attention = Attention(args).cuda() if args.cuda else Attention(args)
         for name, param in self.rnn.named_parameters():
             if 'bias' in name:
-                nn.init.constant(param, 0.0)
+                nn.init.constant_(param, 0.0)
             elif 'weight' in name:
-                nn.init.uniform(param, -0.08, 0.08)
+                nn.init.uniform_(param, -0.08, 0.08)
 
     def forward(self, target, encoder_outputs, source_lengths, hidden=None):
         """
@@ -169,7 +169,7 @@ def run(args, source_vocab, target_vocab, encoder, decoder, encoder_optim, decod
             print("Given source sequence:\n {}".format(source_vocab.to_text(source.data[:source_lens[i], i])))
             print("target sequence is:\n {}".format(target_vocab.to_text(target.data[:target_lens[i], i])))
             print("greedily decoded sequence is:\n {}".format(target_vocab.to_text(pred_seq[:, i])))
-        return correct, total, loss.data[0]
+        return correct, total, loss.item()
     elif mode == "train":
         if (batch_id+1) % args.log_interval == 0:
             i = random.randint(0, batch_size-1)
@@ -181,7 +181,7 @@ def run(args, source_vocab, target_vocab, encoder, decoder, encoder_optim, decod
         nn.utils.clip_grad_norm(decoder.parameters(), args.clip_thresh)
         encoder_optim.step()
         decoder_optim.step()
-        return correct, total, loss.data[0]
+        return correct, total, loss.item()
 
 if __name__ == "__main__":
     args = parse()
