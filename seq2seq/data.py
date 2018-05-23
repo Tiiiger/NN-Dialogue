@@ -12,7 +12,8 @@ class OpenSubVocab():
         self.SOS = 25002
         self.PAD = 25003
         self.UNK = 1
-        self.dict = [s.strip() for s in open(path).readlines()]
+        self.index2word = [s.strip() for s in open(path).readlines()]
+        self.word2index = dict((w, i) for (i, w) in enumerate(self.index2word))
         self.vocab_size = 25004
 
     def to_text(self, t):
@@ -25,8 +26,11 @@ class OpenSubVocab():
             elif n == 25003:
                 continue
             else:
-                sentence += self.dict[n-1] + " "
+                sentence += self.index2word[n-1] + " "
         return sentence
+    
+    def to_vec(self, s):
+        return LongTensor([self.word2index[w] for w in s.split()])
 
 class CornellVocab():
     def __init__(self, path, name=""):
@@ -41,7 +45,7 @@ class CornellVocab():
         self.index2word[1] = "<end>"
         self.index2word[2] = "<pad>"
         self.index2word[3] = "<unk>"
-        self.word2index = dict((w,i) for (i,w) in self.index2word.items())
+        self.word2index = dict((w,i+1) for (i,w) in self.index2word.items())
         self.vocab_size = len(self.index2word)
 
     def to_vec(self, text):
