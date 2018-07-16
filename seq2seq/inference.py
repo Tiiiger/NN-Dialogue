@@ -117,7 +117,7 @@ def greedy(test_loader, encoder, decoder, sample, use_cuda):
                 stats += s
                 c_acc += c
                 r_acc += r
-                for i in range(batch_size):
+#                 for i in range(batch_size):
 #                     if test_data.target_vocab.UNK in source.data[:source_lens[i], i]: continue
 #                     print("Given source sequence:\n {}".format(vocab.to_text(source.data[:source_lens[i], i])))
 #                     print("target sequence is:\n {}".format(vocab.to_text(target.data[:target_lens[i], i])))

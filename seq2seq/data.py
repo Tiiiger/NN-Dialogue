@@ -13,7 +13,7 @@ class OpenSubVocab():
         self.PAD = 25003
         self.UNK = 1
         self.index2word = [s.strip() for s in open(path).readlines()]
-        self.word2index = dict((w, i) for (i, w) in enumerate(self.index2word))
+        self.word2index = dict((w, i+1) for (i, w) in enumerate(self.index2word))
         self.vocab_size = 25004
 
     def to_text(self, t):
@@ -45,7 +45,7 @@ class CornellVocab():
         self.index2word[1] = "<end>"
         self.index2word[2] = "<pad>"
         self.index2word[3] = "<unk>"
-        self.word2index = dict((w,i+1) for (i,w) in self.index2word.items())
+        self.word2index = dict((w,i) for (i,w) in self.index2word.items())
         self.vocab_size = len(self.index2word)
 
     def to_vec(self, text):
